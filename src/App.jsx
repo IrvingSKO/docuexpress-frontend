@@ -112,6 +112,7 @@ async function safeJson(res) {
 
 const authFetch = async (url, options = {}) => {
   const token = localStorage.getItem("token");
+
   const res = await fetch(`${BACKEND_URL}${url}`, {
     ...options,
     headers: {
@@ -120,6 +121,24 @@ const authFetch = async (url, options = {}) => {
       ...(options.headers || {})
     }
   });
+
+  const data = await safeJson(res);
+
+  // ✅ Si el backend dice 401, limpiamos sesión y regresamos a login
+  if (res.status === 401) {
+    localStorage.removeItem("token");
+    alert("Tu sesión expiró. Vuelve a iniciar sesión.");
+    window.location.reload();
+    return;
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.message || `Error HTTP ${res.status}`);
+  }
+
+  return data;
+};
+
 
   const data = await safeJson(res);
   if (!res.ok) throw new Error(data?.message || `Error HTTP ${res.status}`);
