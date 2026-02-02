@@ -122,24 +122,28 @@ const authFetch = async (url, options = {}) => {
     }
   });
 
-  let data = null;
+  let data = {};
   try {
     data = await res.json();
   } catch {
-    data = null;
+    data = {};
   }
 
-  // ✅ Si el backend responde "Token inválido" (aunque NO sea 401)
-  if (
-    data &&
-    typeof data.message === "string" &&
-    data.message.toLowerCase().includes("token")
-  ) {
+  // ✅ SOLO si es 401 (sesión inválida)
+  if (res.status === 401) {
     localStorage.removeItem("token");
     alert("Tu sesión expiró. Vuelve a iniciar sesión.");
     window.location.href = "/";
-    return;
+    return null;
   }
+
+  if (!res.ok) {
+    throw new Error(data?.message || `Error HTTP ${res.status}`);
+  }
+
+  return data;
+};
+
 
   // ✅ Si el backend responde 401
   if (res.status === 401) {
