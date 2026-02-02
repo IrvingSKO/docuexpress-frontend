@@ -965,7 +965,21 @@ function CreditsPanel({ credits }) {
 /* -------------------- Logs panel -------------------- */
 function LogsPanel({ toast, onlyMine }) {
   const [logs, setLogs] = useState([]);
+  const [users, setUsers] = useState([]); // admin-only para filtro usuario
+  const [selected, setSelected] = useState(null);
 
+  // Filtros
+  const [q, setQ] = useState("");
+  const [type, setType] = useState("all");
+  const [userEmail, setUserEmail] = useState("all"); // admin-only
+  const [from, setFrom] = useState(""); // YYYY-MM-DD
+  const [to, setTo] = useState(""); // YYYY-MM-DD
+
+  // Paginación
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+
+  // Carga logs
   useEffect(() => {
     const url = onlyMine ? "/logs/me" : "/logs";
     authFetch(toast, url)
@@ -976,31 +990,306 @@ function LogsPanel({ toast, onlyMine }) {
       .catch(() => setLogs([]));
   }, [onlyMine]);
 
+  // Carga usuarios solo si es admin (onlyMine=false)
+  useEffect(() => {
+    if (onlyMine) return;
+    authFetch(toast, "/users")
+      .then((data) => {
+        if (!data) return;
+        setUsers(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setUsers([]));
+  }, [onlyMine]);
+
+  const typeLabel = (t) => {
+    if (t === "asignacion") return "Asignación NSS";
+    if (t === "semanas") return "Semanas";
+    if (t === "vigencia") return "Vigencia";
+    if (t === "noderecho") return "No derechohabiencia";
+    return t;
+  };
+
+  const inDateRange = (iso) => {
+    if (!iso) return true;
+    const d = new Date(iso);
+    if (from) {
+      const f = new Date(from + "T00:00:00");
+      if (d < f) return false;
+    }
+    if (to) {
+      const t = new Date(to + "T23:59:59");
+      if (d > t) return false;
+    }
+    return true;
+  };
+
+  const filtered = useMemo(() => {
+    const text = q.trim().toLowerCase();
+
+    return logs
+      .filter((l) => {
+        // tipo
+        if (type !== "all" && l.type !== type) return false;
+
+        // usuario (solo admin)
+        if (!onlyMine && userEmail !== "all" && (l.email || "") !== userEmail)
+          return false;
+
+        // fecha
+        if (!inDateRange(l.createdAt)) return false;
+
+        // búsqueda texto
+        if (!text) return true;
+        const hay = [
+          l.type,
+          l.curp,
+          l.nss,
+          l.email,
+          l.userEmail,
+          l.userId
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(text);
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }, [logs, q, type, userEmail, from, to, onlyMine]);
+
+  // Paginación
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageSafe = Math.min(page, totalPages);
+  const start = (pageSafe - 1) * pageSize;
+  const pageItems = filtered.slice(start, start + pageSize);
+
+  useEffect(() => {
+    // Si cambian filtros, volver a página 1
+    setPage(1);
+  }, [q, type, userEmail, from, to, onlyMine]);
+
+  const exportCSV = () => {
+    const rows = filtered.map((l) => ({
+      fecha: l.createdAt ? new Date(l.createdAt).toISOString() : "",
+      tipo: l.type || "",
+      curp: l.curp || "",
+      nss: l.nss || "",
+      email: l.email || l.userEmail || ""
+    }));
+
+    const headers = Object.keys(rows[0] || { fecha: "", tipo: "", curp: "", nss: "", email: "" });
+    const csv =
+      headers.join(",") +
+      "\n" +
+      rows
+        .map((r) =>
+          headers
+            .map((h) => {
+              const val = String(r[h] ?? "");
+              // escape
+              const safe = val.replaceAll('"', '""');
+              return `"${safe}"`;
+            })
+            .join(",")
+        )
+        .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${onlyMine ? "mis_consultas" : "logs"}_${new Date()
+      .toISOString()
+      .slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    toast("success", "CSV exportado", "Se descargó el archivo CSV.");
+  };
+
   return (
-    <Card className="max-w-6xl">
-      <CardHeader
-        title={onlyMine ? "Mis consultas" : "Logs"}
-        subtitle="Registro de consultas realizadas."
-        right={<Pill tone="gray">{logs.length} registros</Pill>}
-      />
-      <CardContent className="space-y-3">
-        {logs.map((l) => (
-          <div
-            key={l.id}
-            className="border border-gray-100 rounded-2xl p-4 flex justify-between gap-3"
-          >
-            <div className="flex items-center gap-2 flex-wrap">
-              <Pill tone="indigo">{l.type}</Pill>
-              <span className="text-sm font-semibold text-gray-800">CURP: {l.curp}</span>
-              {l.nss ? <span className="text-sm text-gray-500">NSS: {l.nss}</span> : null}
+    <>
+      <Card className="max-w-6xl">
+        <CardHeader
+          title={onlyMine ? "Mis consultas" : "Logs"}
+          subtitle="Filtra por usuario, tipo, fecha y texto. Exporta CSV cuando quieras."
+          right={
+            <div className="flex items-center gap-2">
+              <Pill tone="gray">{filtered.length} resultados</Pill>
+              <Button variant="outline" onClick={exportCSV}>
+                Exportar CSV
+              </Button>
             </div>
-            <div className="text-sm text-gray-500">
-              {l.createdAt ? new Date(l.createdAt).toLocaleString() : ""}
+          }
+        />
+        <CardContent className="space-y-4">
+          {/* Filtros */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <Input
+              label="Buscar"
+              placeholder="CURP / NSS / email..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+
+            <Select label="Tipo" value={type} onChange={(e) => setType(e.target.value)}>
+              <option value="all">Todos</option>
+              <option value="asignacion">Asignación NSS</option>
+              <option value="semanas">Semanas</option>
+              <option value="vigencia">Vigencia</option>
+              <option value="noderecho">No derechohabiencia</option>
+            </Select>
+
+            {!onlyMine ? (
+              <Select
+                label="Usuario"
+                value={userEmail}
+                onChange={(e) => setUserEmail(e.target.value)}
+              >
+                <option value="all">Todos</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.email}>
+                    {u.email}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <div />
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                label="Desde"
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+              <Input
+                label="Hasta"
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+              />
             </div>
           </div>
-        ))}
-        {logs.length === 0 ? <div className="text-gray-500">Sin registros.</div> : null}
-      </CardContent>
-    </Card>
+
+          {/* Tabla */}
+          <div className="overflow-auto border border-gray-100 rounded-2xl">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="text-left px-4 py-3 font-semibold">Fecha</th>
+                  <th className="text-left px-4 py-3 font-semibold">Tipo</th>
+                  <th className="text-left px-4 py-3 font-semibold">CURP</th>
+                  <th className="text-left px-4 py-3 font-semibold">NSS</th>
+                  {!onlyMine && (
+                    <th className="text-left px-4 py-3 font-semibold">Usuario</th>
+                  )}
+                  <th className="text-right px-4 py-3 font-semibold">Detalle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageItems.map((l) => (
+                  <tr key={l.id} className="border-t border-gray-100">
+                    <td className="px-4 py-3 text-gray-700">
+                      {l.createdAt ? new Date(l.createdAt).toLocaleString() : ""}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Pill tone="indigo">{typeLabel(l.type)}</Pill>
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-gray-900">{l.curp}</td>
+                    <td className="px-4 py-3 text-gray-700">{l.nss || "—"}</td>
+                    {!onlyMine && (
+                      <td className="px-4 py-3 text-gray-700">{l.email || "—"}</td>
+                    )}
+                    <td className="px-4 py-3 text-right">
+                      <Button variant="outline" onClick={() => setSelected(l)}>
+                        Ver
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+
+                {pageItems.length === 0 ? (
+                  <tr>
+                    <td className="px-4 py-6 text-gray-500" colSpan={onlyMine ? 6 : 7}>
+                      No hay resultados con esos filtros.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Paginación */}
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-gray-500">
+              Página {pageSafe} de {totalPages}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={pageSafe <= 1}
+              >
+                Anterior
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={pageSafe >= totalPages}
+              >
+                Siguiente
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Modal Detalle */}
+      <Modal
+        open={!!selected}
+        title="Detalle de consulta"
+        onClose={() => setSelected(null)}
+      >
+        {selected ? (
+          <div className="space-y-3 text-sm">
+            <div className="flex items-center gap-2">
+              <Pill tone="indigo">{typeLabel(selected.type)}</Pill>
+              <Pill tone="gray">{selected.id}</Pill>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="p-3 rounded-xl border border-gray-100 bg-gray-50">
+                <div className="text-xs font-semibold text-gray-600">CURP</div>
+                <div className="font-semibold">{selected.curp}</div>
+              </div>
+              <div className="p-3 rounded-xl border border-gray-100 bg-gray-50">
+                <div className="text-xs font-semibold text-gray-600">NSS</div>
+                <div className="font-semibold">{selected.nss || "—"}</div>
+              </div>
+              {!onlyMine ? (
+                <div className="p-3 rounded-xl border border-gray-100 bg-gray-50 md:col-span-2">
+                  <div className="text-xs font-semibold text-gray-600">Usuario</div>
+                  <div className="font-semibold">{selected.email || "—"}</div>
+                </div>
+              ) : null}
+              <div className="p-3 rounded-xl border border-gray-100 bg-gray-50 md:col-span-2">
+                <div className="text-xs font-semibold text-gray-600">Fecha</div>
+                <div className="font-semibold">
+                  {selected.createdAt ? new Date(selected.createdAt).toLocaleString() : ""}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-xs text-gray-500">
+              Tip: pronto agregamos link de “Descargar” desde historial (si guardas pdfUrl en logs).
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+    </>
   );
 }
+
