@@ -413,7 +413,7 @@ function Shell({ user, onLogout, toast }) {
   const menu = useMemo(() => {
     if (role === "admin") {
       return [
-        { key: "api", label: "Consumir API" },
+        { key: "api", label: "CONSULTAR" },
         { key: "users", label: "Usuarios" },
         { key: "creditlogs", label: "Log de créditos" },
         { key: "credits", label: "Créditos" },
@@ -497,7 +497,7 @@ function Shell({ user, onLogout, toast }) {
           </Button>
         </div>
 
-        {section === "api" && <ApiPanel toast={toast} onAfterSuccess={refreshCredits} />}
+        {section === "api" && <ConsultarPanel toast={toast} onAfterSuccess={refreshCredits} />}
         {section === "credits" && <CreditsPanel credits={credits} />}
         {section === "history" && role !== "admin" && <LogsPanel toast={toast} onlyMine />}
         {section === "logs" && role === "admin" && <LogsPanel toast={toast} onlyMine={false} />}
@@ -509,14 +509,31 @@ function Shell({ user, onLogout, toast }) {
 }
 
 /* ================= API PANEL ================= */
-function ApiPanel({ toast, onAfterSuccess }) {
-  const [type, setType] = useState("semanas");
+function ConsultarPanel({ toast, onAfterSuccess }) {
+  const [step, setStep] = useState("cards"); // "cards" | "form"
+  const [service, setService] = useState(null); // "semanas" | "asignacion" | "vigencia" | "noderecho"
+
+  // Form
   const [curp, setCurp] = useState("");
   const [nss, setNss] = useState("");
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const needsNss = type === "semanas" || type === "vigencia";
+  const needsNss = service === "semanas" || service === "vigencia";
+
+  const goBack = () => {
+    setStep("cards");
+    setService(null);
+    setCurp("");
+    setNss("");
+    setFiles([]);
+  };
+
+  const pick = (s) => {
+    setService(s);
+    setStep("form");
+    setFiles([]);
+  };
 
   const pasteFromClipboard = async () => {
     try {
@@ -544,7 +561,11 @@ function ApiPanel({ toast, onAfterSuccess }) {
 
       const data = await authFetch(toast, "/imss", {
         method: "POST",
-        body: JSON.stringify({ type, curp, nss })
+        body: JSON.stringify({
+          type: service,
+          curp,
+          nss
+        })
       });
 
       if (!data) return;
@@ -572,51 +593,98 @@ function ApiPanel({ toast, onAfterSuccess }) {
     }
   };
 
+  const card = (key, title, subtitle, reqs) => (
+    <button
+      onClick={() => pick(key)}
+      className="text-left p-5 rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 transition shadow-sm"
+    >
+      <div className="text-base font-extrabold text-gray-900">{title}</div>
+      <div className="text-sm text-gray-500 mt-1">{subtitle}</div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {reqs.map((r) => (
+          <Pill key={r} tone="gray">{r}</Pill>
+        ))}
+      </div>
+    </button>
+  );
+
+  const titleMap = {
+    semanas: "Semanas cotizadas",
+    asignacion: "Asignación / Localización NSS",
+    vigencia: "Vigencia de derechos",
+    noderecho: "No derechohabiencia"
+  };
+
   return (
-    <Card className="max-w-3xl">
+    <Card className="max-w-4xl">
       <CardHeader
-        title="Consulta IMSS"
-        subtitle="Los PDFs duran 1 día. Cada consulta descuenta 1 crédito."
-        right={<Pill tone="indigo">1 crédito / consulta</Pill>}
+        title="CONSULTAR"
+        subtitle={step === "cards" ? "Elige el trámite que deseas generar." : `Trámite: ${titleMap[service]}`}
+        right={
+          step === "form" ? (
+            <Button variant="outline" onClick={goBack}>
+              ← Atrás
+            </Button>
+          ) : (
+            <Pill tone="indigo">PDFs duran 24h</Pill>
+          )
+        }
       />
-      <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Select label="Tipo de documento" value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="asignacion">Asignación NSS</option>
-          <option value="semanas">Semanas cotizadas</option>
-          <option value="vigencia">Vigencia de derechos</option>
-          <option value="noderecho">No derechohabiencia</option>
-        </Select>
+      <CardContent>
+        {step === "cards" ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {card("semanas", "Semanas cotizadas", "Constancia de semanas cotizadas en el IMSS.", ["CURP + NSS"])}
+            {card("asignacion", "Asignación / Localización NSS", "Genera documentos de NSS (puede devolver 2 PDFs).", ["Solo CURP", "2 PDFs"])}
+            {card("vigencia", "Vigencia de derechos", "Constancia de vigencia de derechos.", ["CURP + NSS"])}
+            {card("noderecho", "No derechohabiencia", "Constancia de no derecho al servicio médico.", ["Solo CURP (según proveedor)"])}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="CURP"
+                value={curp}
+                onChange={(e) => setCurp(e.target.value.toUpperCase())}
+                placeholder="Ej. MAGC790705HTLRNR03"
+              />
+              <Input
+                label="NSS"
+                value={nss}
+                onChange={(e) => setNss(e.target.value)}
+                disabled={!needsNss}
+                placeholder={needsNss ? "Obligatorio" : "No requerido"}
+              />
+            </div>
 
-        <div className="flex items-end">
-          <Button variant="outline" className="w-full" onClick={pasteFromClipboard}>
-            Pegar CURP/NSS
-          </Button>
-        </div>
-
-        <Input label="CURP" value={curp} onChange={(e) => setCurp(e.target.value.toUpperCase())} />
-        <Input label="NSS" value={nss} onChange={(e) => setNss(e.target.value)} disabled={!needsNss} />
-
-        <div className="md:col-span-2 space-y-3">
-          <Button className="w-full" onClick={generate} disabled={loading || !curp || (needsNss && !nss)}>
-            {loading ? "Generando..." : "Generar documento"}
-          </Button>
-
-          {files.length > 0 ? (
-            <>
-              <Button variant="outline" className="w-full" onClick={downloadAll}>
-                Descargar PDF{files.length === 2 ? "s" : ""}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Button variant="outline" onClick={pasteFromClipboard}>
+                Pegar CURP/NSS
               </Button>
+              <Button
+                onClick={generate}
+                disabled={loading || !curp || (needsNss && !nss)}
+              >
+                {loading ? "Generando..." : "Generar documento"}
+              </Button>
+            </div>
 
-              <div className="text-xs text-gray-500">
-                Expira: {files[0]?.expiresAt ? new Date(files[0].expiresAt).toLocaleString() : "—"}
+            {files.length > 0 ? (
+              <div className="space-y-2">
+                <Button variant="outline" className="w-full" onClick={downloadAll}>
+                  Descargar PDF{files.length === 2 ? "s" : ""}
+                </Button>
+                <div className="text-xs text-gray-500">
+                  Expira: {files[0]?.expiresAt ? new Date(files[0].expiresAt).toLocaleString() : "—"}
+                </div>
               </div>
-            </>
-          ) : null}
-        </div>
+            ) : null}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
 }
+
 
 /* ================= USERS PANEL (ADMIN) ================= */
 function UsersPanel({ toast }) {
