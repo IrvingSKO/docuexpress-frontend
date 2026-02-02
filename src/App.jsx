@@ -129,7 +129,7 @@ const authFetch = async (url, options = {}) => {
     localStorage.removeItem("token");
     alert("Tu sesión expiró. Vuelve a iniciar sesión.");
     window.location.reload();
-    return;
+    return null;
   }
 
   if (!res.ok) {
@@ -139,11 +139,6 @@ const authFetch = async (url, options = {}) => {
   return data;
 };
 
-
-  const data = await safeJson(res);
-  if (!res.ok) throw new Error(data?.message || `Error HTTP ${res.status}`);
-  return data;
-};
 
 /* -------------------- App -------------------- */
 export default function App() {
