@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 
-/** ✅ Cambia solo si un día mueves backend */
+/** Backend */
 const BACKEND_URL =
   import.meta?.env?.VITE_API_URL || "https://docuexpress.onrender.com/api";
 
-/* ---------------- UI helpers ---------------- */
+/* ---------- UI helpers ---------- */
 const cx = (...a) => a.filter(Boolean).join(" ");
 
 function Card({ className = "", children }) {
@@ -28,9 +28,7 @@ function CardHeader({ title, subtitle, right }) {
         <h2 className="text-lg font-extrabold tracking-tight text-gray-900">
           {title}
         </h2>
-        {subtitle ? (
-          <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
-        ) : null}
+        {subtitle ? <p className="text-sm text-gray-500 mt-1">{subtitle}</p> : null}
       </div>
       {right ? <div className="shrink-0">{right}</div> : null}
     </div>
@@ -47,8 +45,16 @@ function Button({ className = "", variant = "solid", ...props }) {
   const solid = "bg-indigo-600 text-white hover:bg-indigo-700";
   const outline = "bg-white border border-gray-200 hover:bg-gray-50 text-gray-900";
   const ghost = "bg-transparent hover:bg-gray-100 text-gray-900";
+  const danger = "bg-rose-600 text-white hover:bg-rose-700";
   const styles =
-    variant === "outline" ? outline : variant === "ghost" ? ghost : solid;
+    variant === "outline"
+      ? outline
+      : variant === "ghost"
+      ? ghost
+      : variant === "danger"
+      ? danger
+      : solid;
+
   return <button className={cx(base, styles, className)} {...props} />;
 }
 
@@ -90,7 +96,7 @@ function Pill({ children }) {
   );
 }
 
-/* ---------------- Helpers ---------------- */
+/* ---------- Helpers ---------- */
 async function safeJson(res) {
   try {
     return await res.json();
@@ -113,7 +119,6 @@ const authFetch = async (url, options = {}) => {
 
   const data = await safeJson(res);
 
-  // ✅ SOLO cierra sesión si el backend responde 401
   if (res.status === 401) {
     localStorage.removeItem("token");
     alert("Tu sesión expiró. Vuelve a iniciar sesión.");
@@ -122,15 +127,16 @@ const authFetch = async (url, options = {}) => {
   }
 
   if (!res.ok) {
+    // 403 normalmente = usuario deshabilitado
     throw new Error(data?.message || `Error HTTP ${res.status}`);
   }
 
   return data;
 };
 
-/* ---------------- App ---------------- */
+/* ---------- App ---------- */
 export default function App() {
-  const [screen, setScreen] = useState("login"); // login | app
+  const [screen, setScreen] = useState("login");
   const [user, setUser] = useState(null);
 
   const login = async (email, password) => {
@@ -162,7 +168,6 @@ export default function App() {
     setScreen("login");
   };
 
-  // Si no hay token, forzamos login
   useEffect(() => {
     const t = localStorage.getItem("token");
     if (!t) {
@@ -179,7 +184,7 @@ export default function App() {
   );
 }
 
-/* ---------------- Login ---------------- */
+/* ---------- Login ---------- */
 function Login({ onLogin }) {
   const [email, setEmail] = useState("admin@docuexpress.com");
   const [password, setPassword] = useState("Admin123!");
@@ -210,6 +215,11 @@ function Login({ onLogin }) {
             <Button className="w-full" onClick={() => onLogin(email, password)}>
               Iniciar sesión
             </Button>
+
+            <div className="text-xs text-gray-500">
+              <div>Admin: admin@docuexpress.com / Admin123!</div>
+              <div>Cliente: cliente@docuexpress.com / Cliente123!</div>
+            </div>
           </CardContent>
         </Card>
       </motion.div>
@@ -217,7 +227,7 @@ function Login({ onLogin }) {
   );
 }
 
-/* ---------------- Shell (Admin/User) ---------------- */
+/* ---------- Shell ---------- */
 function Shell({ user, onLogout }) {
   const role = user?.role || "user";
   const [section, setSection] = useState(role === "admin" ? "api" : "api");
@@ -228,6 +238,7 @@ function Shell({ user, onLogout }) {
       return [
         { key: "api", label: "Consumir API" },
         { key: "users", label: "Usuarios" },
+        { key: "creditlogs", label: "Log de créditos" },
         { key: "credits", label: "Créditos" },
         { key: "logs", label: "Logs" }
       ];
@@ -242,6 +253,7 @@ function Shell({ user, onLogout }) {
   const refreshCredits = async () => {
     try {
       const data = await authFetch("/credits/me");
+      if (!data) return;
       setCredits(data?.credits ?? 0);
     } catch {
       setCredits(null);
@@ -262,7 +274,7 @@ function Shell({ user, onLogout }) {
         <div className="mt-6 rounded-2xl border border-gray-100 bg-gray-50 p-4">
           <div className="text-xs text-gray-500">Sesión</div>
           <div className="text-sm font-semibold text-gray-900 mt-1">{user?.email}</div>
-          <div className="mt-3 flex items-center gap-2">
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
             <Pill>{role === "admin" ? "Admin" : "Usuario"}</Pill>
             {credits !== null ? <Pill>{credits} créditos</Pill> : null}
           </div>
@@ -277,7 +289,9 @@ function Shell({ user, onLogout }) {
                 onClick={() => setSection(it.key)}
                 className={cx(
                   "w-full text-left px-4 py-3 rounded-xl text-sm font-semibold transition",
-                  active ? "bg-indigo-600 text-white shadow" : "hover:bg-gray-100 text-gray-800"
+                  active
+                    ? "bg-indigo-600 text-white shadow"
+                    : "hover:bg-gray-100 text-gray-800"
                 )}
               >
                 {it.label}
@@ -309,6 +323,7 @@ function Shell({ user, onLogout }) {
 
         {section === "api" && <ApiPanel onAfterSuccess={refreshCredits} />}
         {section === "users" && role === "admin" && <UsersPanel />}
+        {section === "creditlogs" && role === "admin" && <CreditLogsPanel />}
         {section === "credits" && <CreditsPanel credits={credits} />}
         {section === "logs" && role === "admin" && <LogsPanel onlyMine={false} />}
         {section === "history" && role !== "admin" && <LogsPanel onlyMine />}
@@ -317,7 +332,7 @@ function Shell({ user, onLogout }) {
   );
 }
 
-/* ---------------- API Panel ---------------- */
+/* ---------- API Panel ---------- */
 function ApiPanel({ onAfterSuccess }) {
   const [type, setType] = useState("semanas");
   const [curp, setCurp] = useState("");
@@ -337,6 +352,8 @@ function ApiPanel({ onAfterSuccess }) {
         body: JSON.stringify({ type, curp, nss })
       });
 
+      if (!data) return;
+
       if (data?.pdfUrl) {
         setPdfUrl(data.pdfUrl);
         onAfterSuccess?.();
@@ -353,6 +370,7 @@ function ApiPanel({ onAfterSuccess }) {
   const download = async () => {
     try {
       const token = localStorage.getItem("token");
+
       const res = await fetch(
         `${BACKEND_URL}/download?url=${encodeURIComponent(pdfUrl)}`,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -426,23 +444,20 @@ function ApiPanel({ onAfterSuccess }) {
   );
 }
 
-/* ---------------- Users Panel ---------------- */
+/* ---------- Users Panel (Admin) ---------- */
 function UsersPanel() {
   const [users, setUsers] = useState([]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const load = async () => {
-    try {
-      const data = await authFetch("/users");
-      setUsers(Array.isArray(data) ? data : []);
-    } catch (e) {
-      alert(e.message || "No se pudieron cargar usuarios");
-    }
+    const data = await authFetch("/users");
+    if (!data) return;
+    setUsers(Array.isArray(data) ? data : []);
   };
 
   useEffect(() => {
-    load();
+    load().catch((e) => alert(e.message));
   }, []);
 
   const create = async () => {
@@ -455,17 +470,56 @@ function UsersPanel() {
       setPassword("");
       load();
     } catch (e) {
-      alert(e.message || "No se pudo crear usuario");
+      alert(e.message);
+    }
+  };
+
+  const toggleDisabled = async (id, disabled) => {
+    try {
+      await authFetch(`/users/${id}/disabled`, {
+        method: "PATCH",
+        body: JSON.stringify({ disabled: !disabled })
+      });
+      load();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  const resetPassword = async (id) => {
+    try {
+      const data = await authFetch(`/users/${id}/reset-password`, { method: "POST" });
+      if (!data) return;
+      alert(`Contraseña temporal:\n\n${data.tempPassword}\n\n(Cópiala y pásasela al usuario)`);
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  const adjustCredits = async (id, delta) => {
+    const note = prompt("Motivo / Nota (opcional):") || "";
+    try {
+      await authFetch(`/users/${id}/credits`, {
+        method: "POST",
+        body: JSON.stringify({ delta, note })
+      });
+      load();
+    } catch (e) {
+      alert(e.message);
     }
   };
 
   return (
-    <Card className="max-w-4xl">
-      <CardHeader title="Usuarios" subtitle="Crea usuarios para consumir consultas." />
+    <Card className="max-w-5xl">
+      <CardHeader title="Usuarios" subtitle="Administra usuarios, créditos y acceso." />
       <CardContent className="space-y-5">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <Input label="Correo" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <Input label="Contraseña" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Input
+            label="Contraseña"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
           <div className="flex items-end">
             <Button className="w-full" onClick={create} disabled={!email || !password}>
               Crear usuario
@@ -480,6 +534,8 @@ function UsersPanel() {
                 <th className="text-left px-4 py-3 font-semibold">Email</th>
                 <th className="text-left px-4 py-3 font-semibold">Rol</th>
                 <th className="text-left px-4 py-3 font-semibold">Créditos</th>
+                <th className="text-left px-4 py-3 font-semibold">Estado</th>
+                <th className="text-right px-4 py-3 font-semibold">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -492,11 +548,39 @@ function UsersPanel() {
                   <td className="px-4 py-3">
                     <Pill>{u.credits}</Pill>
                   </td>
+                  <td className="px-4 py-3">
+                    {u.disabled ? (
+                      <span className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-100 px-2.5 py-1 rounded-full">
+                        Deshabilitado
+                      </span>
+                    ) : (
+                      <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
+                        Activo
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right space-x-2">
+                    <Button variant="outline" onClick={() => adjustCredits(u.id, +10)}>
+                      +10
+                    </Button>
+                    <Button variant="outline" onClick={() => adjustCredits(u.id, -10)}>
+                      -10
+                    </Button>
+                    <Button variant="outline" onClick={() => resetPassword(u.id)}>
+                      Reset pass
+                    </Button>
+                    <Button
+                      variant={u.disabled ? "solid" : "danger"}
+                      onClick={() => toggleDisabled(u.id, u.disabled)}
+                    >
+                      {u.disabled ? "Habilitar" : "Deshabilitar"}
+                    </Button>
+                  </td>
                 </tr>
               ))}
               {users.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-gray-500" colSpan={3}>
+                  <td className="px-4 py-6 text-gray-500" colSpan={5}>
                     No hay usuarios aún.
                   </td>
                 </tr>
@@ -509,7 +593,66 @@ function UsersPanel() {
   );
 }
 
-/* ---------------- Credits Panel ---------------- */
+/* ---------- Credit Logs Panel (Admin) ---------- */
+function CreditLogsPanel() {
+  const [logs, setLogs] = useState([]);
+  const [filterEmail, setFilterEmail] = useState("");
+
+  const load = async () => {
+    const data = await authFetch("/credit-logs");
+    if (!data) return;
+    setLogs(Array.isArray(data) ? data : []);
+  };
+
+  useEffect(() => {
+    load().catch((e) => alert(e.message));
+  }, []);
+
+  const filtered = logs.filter((l) =>
+    filterEmail ? (l.userEmail || "").toLowerCase().includes(filterEmail.toLowerCase()) : true
+  );
+
+  return (
+    <Card className="max-w-5xl">
+      <CardHeader
+        title="Log de créditos"
+        subtitle="Historial de créditos otorgados o retirados."
+        right={<Pill>{filtered.length} registros</Pill>}
+      />
+      <CardContent className="space-y-4">
+        <Input
+          label="Filtrar por email del usuario"
+          placeholder="cliente@..."
+          value={filterEmail}
+          onChange={(e) => setFilterEmail(e.target.value)}
+        />
+
+        <div className="space-y-2">
+          {filtered.map((l) => (
+            <div key={l.id} className="border border-gray-100 rounded-2xl p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Pill>{l.delta > 0 ? `+${l.delta}` : `${l.delta}`}</Pill>
+                <span className="text-sm font-semibold text-gray-900">{l.userEmail}</span>
+                <span className="text-sm text-gray-500">
+                  {l.before} → {l.after}
+                </span>
+              </div>
+              <div className="text-xs text-gray-500 mt-2">
+                Admin: {l.adminEmail} · {new Date(l.createdAt).toLocaleString()}
+                {l.note ? ` · Nota: ${l.note}` : ""}
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 ? (
+            <div className="text-gray-500">Sin movimientos de créditos.</div>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ---------- Credits Panel ---------- */
 function CreditsPanel({ credits }) {
   return (
     <Card className="max-w-3xl">
@@ -521,14 +664,17 @@ function CreditsPanel({ credits }) {
   );
 }
 
-/* ---------------- Logs Panel ---------------- */
+/* ---------- Logs Panel ---------- */
 function LogsPanel({ onlyMine }) {
   const [logs, setLogs] = useState([]);
 
   useEffect(() => {
     const url = onlyMine ? "/logs/me" : "/logs";
     authFetch(url)
-      .then((data) => setLogs(Array.isArray(data) ? data : []))
+      .then((data) => {
+        if (!data) return;
+        setLogs(Array.isArray(data) ? data : []);
+      })
       .catch(() => setLogs([]));
   }, [onlyMine]);
 
@@ -542,7 +688,7 @@ function LogsPanel({ onlyMine }) {
       <CardContent className="space-y-3">
         {logs.map((l) => (
           <div key={l.id} className="border border-gray-100 rounded-2xl p-4 flex justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Pill>{l.type}</Pill>
               <span className="text-sm font-semibold text-gray-800">CURP: {l.curp}</span>
               {l.nss ? <span className="text-sm text-gray-500">NSS: {l.nss}</span> : null}
