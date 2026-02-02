@@ -28,7 +28,11 @@ function Button({ className = "", variant = "solid", ...props }) {
 async function safeJson(res) {
   try {
     return await res.json();
-  } catch {
+  } catch (err) {
+  console.error(err);
+  alert("Error de conexión con el servidor");
+}
+
     return {};
   }
 }
@@ -69,24 +73,33 @@ export default function App() {
   const [user, setUser] = useState(null);
 
   const handleLogin = async (email, password) => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
-      });
+  try {
+    const res = await fetch(`${BACKEND_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
 
-      const data = await safeJson(res);
+    const data = await res.json();
 
-      if (data?.token) {
-        localStorage.setItem("token", data.token);
-        setUser(data.user);
-        setScreen(data.user.role === "admin" ? "admin" : "user");
-      } else {
-        alert("Credenciales incorrectas");
-      }
-    } catch {}
-  };
+    if (!res.ok) {
+      alert(data?.message || "Error al iniciar sesión");
+      return;
+    }
+
+    if (data?.token) {
+      localStorage.setItem("token", data.token);
+      setUser(data.user);
+      setScreen(data.user.role === "admin" ? "admin" : "user");
+    } else {
+      alert("Respuesta inválida del servidor");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("No se pudo conectar con el backend");
+  }
+};
+
 
   const logout = () => {
     localStorage.removeItem("token");
