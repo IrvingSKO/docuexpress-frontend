@@ -4,10 +4,10 @@ import { motion } from "framer-motion";
 const BACKEND_URL =
   import.meta?.env?.VITE_API_URL || "https://docuexpress.onrender.com/api";
 
-/* ===================== utils ===================== */
+/* ================= utils ================= */
 const cx = (...a) => a.filter(Boolean).join(" ");
 
-/* ===================== toasts ===================== */
+/* ================= toasts ================= */
 function useToasts() {
   const [toasts, setToasts] = useState([]);
   const timers = useRef(new Map());
@@ -81,7 +81,7 @@ function ToastViewport({ toasts, dismiss }) {
   );
 }
 
-/* ===================== UI atoms ===================== */
+/* ================= UI atoms ================= */
 function Card({ className = "", children }) {
   return (
     <div
@@ -187,7 +187,7 @@ function Pill({ children, tone = "indigo" }) {
   );
 }
 
-/* ===================== modals ===================== */
+/* ================= modals ================= */
 function Modal({ open, title, children, onClose, footer }) {
   if (!open) return null;
   return (
@@ -246,7 +246,7 @@ function ConfirmModal({
   );
 }
 
-/* ===================== network helpers ===================== */
+/* ================= network helpers ================= */
 async function safeJson(res) {
   try {
     return await res.json();
@@ -282,7 +282,41 @@ const authFetch = async (toast, url, options = {}) => {
   return data;
 };
 
-/* ===================== APP ===================== */
+async function downloadByFileId({ toast, fileId, filename }) {
+  try {
+    const token = localStorage.getItem("token");
+    const res = await fetch(`${BACKEND_URL}/files/${fileId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    if (res.status === 410) {
+      toast("warn", "Archivo expirado", "Los PDFs duran 1 día.");
+      return;
+    }
+
+    if (!res.ok) {
+      const err = await safeJson(res);
+      toast("error", "Descarga fallida", err?.message || "No se pudo descargar.");
+      return;
+    }
+
+    const blob = await res.blob();
+    const fileUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = fileUrl;
+    a.download = filename || "documento.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(fileUrl);
+
+    toast("success", "Descarga iniciada", filename || "documento.pdf");
+  } catch {
+    toast("error", "Error", "Ocurrió un error al descargar.");
+  }
+}
+
+/* ================= APP ================= */
 export default function App() {
   const { toasts, push, dismiss } = useToasts();
   const toast = (type, title, message) => push(type, title, message);
@@ -297,18 +331,17 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
       });
-
       const data = await safeJson(res);
 
       if (!res.ok) {
-        toast("error", "No se pudo iniciar sesión", data?.message || "Revisa tus credenciales");
+        toast("error", "Login fallido", data?.message || "Revisa tus credenciales");
         return;
       }
 
       localStorage.setItem("token", data.token);
       setUser(data.user);
       setScreen("app");
-      toast("success", "Bienvenido", `Sesión iniciada: ${data.user.email}`);
+      toast("success", "Bienvenido", data.user.email);
     } catch {
       toast("error", "Error", "No se pudo conectar con el backend");
     }
@@ -338,7 +371,7 @@ export default function App() {
   );
 }
 
-/* ===================== LOGIN ===================== */
+/* ================= LOGIN ================= */
 function Login({ onLogin }) {
   const [email, setEmail] = useState("admin@docuexpress.com");
   const [password, setPassword] = useState("Admin123!");
@@ -364,11 +397,6 @@ function Login({ onLogin }) {
             <Button className="w-full" onClick={() => onLogin(email, password)}>
               Iniciar sesión
             </Button>
-
-            <div className="text-xs text-gray-500">
-              <div>Admin: admin@docuexpress.com / Admin123!</div>
-              <div>Cliente: cliente@docuexpress.com / Cliente123!</div>
-            </div>
           </CardContent>
         </Card>
       </motion.div>
@@ -376,7 +404,7 @@ function Login({ onLogin }) {
   );
 }
 
-/* ===================== SHELL ===================== */
+/* ================= SHELL ================= */
 function Shell({ user, onLogout, toast }) {
   const role = user?.role || "user";
   const [section, setSection] = useState(role === "admin" ? "api" : "api");
@@ -470,22 +498,22 @@ function Shell({ user, onLogout, toast }) {
         </div>
 
         {section === "api" && <ApiPanel toast={toast} onAfterSuccess={refreshCredits} />}
+        {section === "credits" && <CreditsPanel credits={credits} />}
+        {section === "history" && role !== "admin" && <LogsPanel toast={toast} onlyMine />}
+        {section === "logs" && role === "admin" && <LogsPanel toast={toast} onlyMine={false} />}
         {section === "users" && role === "admin" && <UsersPanel toast={toast} />}
         {section === "creditlogs" && role === "admin" && <CreditLogsPanel toast={toast} />}
-        {section === "credits" && <CreditsPanel credits={credits} />}
-        {section === "logs" && role === "admin" && <LogsPanel toast={toast} onlyMine={false} />}
-        {section === "history" && role !== "admin" && <LogsPanel toast={toast} onlyMine />}
       </main>
     </div>
   );
 }
 
-/* ===================== API PANEL ===================== */
+/* ================= API PANEL ================= */
 function ApiPanel({ toast, onAfterSuccess }) {
   const [type, setType] = useState("semanas");
   const [curp, setCurp] = useState("");
   const [nss, setNss] = useState("");
-  const [pdfUrl, setPdfUrl] = useState(null);
+  const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const needsNss = type === "semanas" || type === "vigencia";
@@ -512,7 +540,7 @@ function ApiPanel({ toast, onAfterSuccess }) {
   const generate = async () => {
     try {
       setLoading(true);
-      setPdfUrl(null);
+      setFiles([]);
 
       const data = await authFetch(toast, "/imss", {
         method: "POST",
@@ -521,47 +549,26 @@ function ApiPanel({ toast, onAfterSuccess }) {
 
       if (!data) return;
 
-      if (data?.pdfUrl) {
-        setPdfUrl(data.pdfUrl);
-        toast("success", "Documento generado", "El PDF está listo para descargar.");
+      if (Array.isArray(data.files) && data.files.length > 0) {
+        setFiles(data.files);
+        toast("success", "Documento generado", data.files.length === 2 ? "Se generaron 2 PDFs." : "Se generó 1 PDF.");
         onAfterSuccess?.();
       } else {
-        toast("warn", "Sin PDF", "No se recibió la URL del PDF.");
+        toast("warn", "Inconsistencia", "IMSS no devolvió PDFs.");
       }
     } catch (e) {
-      toast("error", "Error IMSS", e.message);
+      const msg = (e.message || "").toLowerCase().includes("inconsistencia")
+        ? "Inconsistencia"
+        : e.message;
+      toast("error", "Error IMSS", msg);
     } finally {
       setLoading(false);
     }
   };
 
-  const download = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${BACKEND_URL}/download?url=${encodeURIComponent(pdfUrl)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      if (!res.ok) {
-        const err = await safeJson(res);
-        toast("error", "Descarga fallida", err?.message || "No se pudo descargar.");
-        return;
-      }
-
-      const blob = await res.blob();
-      const fileUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = fileUrl;
-      a.download = `${type}_${curp}.pdf`.toLowerCase();
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(fileUrl);
-
-      toast("success", "Descarga iniciada", `${type}_${curp}.pdf`);
-    } catch {
-      toast("error", "Error", "Ocurrió un error al descargar.");
+  const downloadAll = async () => {
+    for (const f of files) {
+      await downloadByFileId({ toast, fileId: f.fileId, filename: f.filename });
     }
   };
 
@@ -569,7 +576,7 @@ function ApiPanel({ toast, onAfterSuccess }) {
     <Card className="max-w-3xl">
       <CardHeader
         title="Consulta IMSS"
-        subtitle="Cada consulta descuenta 1 crédito."
+        subtitle="Los PDFs duran 1 día. Cada consulta descuenta 1 crédito."
         right={<Pill tone="indigo">1 crédito / consulta</Pill>}
       />
       <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -586,34 +593,24 @@ function ApiPanel({ toast, onAfterSuccess }) {
           </Button>
         </div>
 
-        <Input
-          label="CURP"
-          placeholder="Ej. MAGC790705HTLRNR03"
-          value={curp}
-          onChange={(e) => setCurp(e.target.value.toUpperCase())}
-        />
-
-        <Input
-          label="NSS"
-          placeholder={needsNss ? "Obligatorio" : "No requerido"}
-          value={nss}
-          onChange={(e) => setNss(e.target.value)}
-          disabled={!needsNss}
-        />
+        <Input label="CURP" value={curp} onChange={(e) => setCurp(e.target.value.toUpperCase())} />
+        <Input label="NSS" value={nss} onChange={(e) => setNss(e.target.value)} disabled={!needsNss} />
 
         <div className="md:col-span-2 space-y-3">
-          <Button
-            className="w-full"
-            onClick={generate}
-            disabled={loading || !curp || (needsNss && !nss)}
-          >
+          <Button className="w-full" onClick={generate} disabled={loading || !curp || (needsNss && !nss)}>
             {loading ? "Generando..." : "Generar documento"}
           </Button>
 
-          {pdfUrl ? (
-            <Button variant="outline" className="w-full" onClick={download}>
-              Descargar PDF
-            </Button>
+          {files.length > 0 ? (
+            <>
+              <Button variant="outline" className="w-full" onClick={downloadAll}>
+                Descargar PDF{files.length === 2 ? "s" : ""}
+              </Button>
+
+              <div className="text-xs text-gray-500">
+                Expira: {files[0]?.expiresAt ? new Date(files[0].expiresAt).toLocaleString() : "—"}
+              </div>
+            </>
           ) : null}
         </div>
       </CardContent>
@@ -621,7 +618,7 @@ function ApiPanel({ toast, onAfterSuccess }) {
   );
 }
 
-/* ===================== USERS PANEL (ADMIN) ===================== */
+/* ================= USERS PANEL (ADMIN) ================= */
 function UsersPanel({ toast }) {
   const [users, setUsers] = useState([]);
   const [email, setEmail] = useState("");
@@ -688,7 +685,9 @@ function UsersPanel({ toast }) {
 
   const resetPassword = async (u) => {
     try {
-      const data = await authFetch(toast, `/users/${u.id}/reset-password`, { method: "POST" });
+      const data = await authFetch(toast, `/users/${u.id}/reset-password`, {
+        method: "POST"
+      });
       if (!data) return;
       setConfirmUser({ ...u, mode: "temp", tempPassword: data.tempPassword });
       setConfirmOpen(true);
@@ -709,7 +708,11 @@ function UsersPanel({ toast }) {
         method: "PATCH",
         body: JSON.stringify({ disabled: !u.disabled })
       });
-      toast("success", u.disabled ? "Usuario habilitado" : "Usuario deshabilitado", u.email);
+      toast(
+        "success",
+        u.disabled ? "Usuario habilitado" : "Usuario deshabilitado",
+        u.email
+      );
       setConfirmOpen(false);
       setConfirmUser(null);
       load();
@@ -786,7 +789,6 @@ function UsersPanel({ toast }) {
         </CardContent>
       </Card>
 
-      {/* Modal: Ajustar créditos */}
       <Modal
         open={creditsOpen}
         title={`Ajustar créditos: ${targetUser?.email || ""}`}
@@ -799,25 +801,12 @@ function UsersPanel({ toast }) {
         }
       >
         <div className="space-y-4">
-          <Input
-            label="Cantidad (entero positivo o negativo)"
-            placeholder="Ej. 50 o -10"
-            value={delta}
-            onChange={(e) => setDelta(e.target.value)}
-          />
-          <Input
-            label="Nota / Motivo (opcional)"
-            placeholder="Ej. Compra de créditos"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-          <div className="text-xs text-gray-500">
-            Solo enteros. Negativo descuenta (nunca baja de 0).
-          </div>
+          <Input label="Cantidad (entero + o -)" placeholder="Ej. 50 o -10" value={delta} onChange={(e) => setDelta(e.target.value)} />
+          <Input label="Nota (opcional)" value={note} onChange={(e) => setNote(e.target.value)} />
+          <div className="text-xs text-gray-500">Los PDFs duran 1 día. Créditos no bajan de 0.</div>
         </div>
       </Modal>
 
-      {/* Confirm: deshabilitar/habilitar o mostrar password temporal */}
       <ConfirmModal
         open={confirmOpen}
         title={
@@ -859,19 +848,18 @@ function UsersPanel({ toast }) {
   );
 }
 
-/* ===================== CREDIT LOGS (ADMIN) ===================== */
+/* ================= CREDIT LOGS (ADMIN) ================= */
 function CreditLogsPanel({ toast }) {
   const [logs, setLogs] = useState([]);
   const [filterEmail, setFilterEmail] = useState("");
 
-  const load = async () => {
-    const data = await authFetch(toast, "/credit-logs");
-    if (!data) return;
-    setLogs(Array.isArray(data) ? data : []);
-  };
-
   useEffect(() => {
-    load().catch((e) => toast("error", "Error", e.message));
+    authFetch(toast, "/credit-logs")
+      .then((data) => {
+        if (!data) return;
+        setLogs(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setLogs([]));
   }, []);
 
   const filtered = logs.filter((l) =>
@@ -920,7 +908,7 @@ function CreditLogsPanel({ toast }) {
   );
 }
 
-/* ===================== CREDITS PANEL ===================== */
+/* ================= CREDITS PANEL ================= */
 function CreditsPanel({ credits }) {
   return (
     <Card className="max-w-3xl">
@@ -932,7 +920,7 @@ function CreditsPanel({ credits }) {
   );
 }
 
-/* ===================== LOGS WOW ===================== */
+/* ================= LOGS WOW (incluye descargas) ================= */
 function LogsPanel({ toast, onlyMine }) {
   const [logs, setLogs] = useState([]);
   const [users, setUsers] = useState([]);
@@ -991,7 +979,6 @@ function LogsPanel({ toast, onlyMine }) {
 
   const filtered = useMemo(() => {
     const text = q.trim().toLowerCase();
-
     return logs
       .filter((l) => {
         if (type !== "all" && l.type !== type) return false;
@@ -999,14 +986,7 @@ function LogsPanel({ toast, onlyMine }) {
         if (!inDateRange(l.createdAt)) return false;
 
         if (!text) return true;
-        const hay = [
-          l.type,
-          l.curp,
-          l.nss,
-          l.email,
-          l.userEmail,
-          l.userId
-        ]
+        const hay = [l.type, l.curp, l.nss, l.email, l.userId]
           .filter(Boolean)
           .join(" ")
           .toLowerCase();
@@ -1015,9 +995,7 @@ function LogsPanel({ toast, onlyMine }) {
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }, [logs, q, type, userEmail, from, to, onlyMine]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [q, type, userEmail, from, to, onlyMine]);
+  useEffect(() => setPage(1), [q, type, userEmail, from, to, onlyMine]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageSafe = Math.min(page, totalPages);
@@ -1030,7 +1008,7 @@ function LogsPanel({ toast, onlyMine }) {
       tipo: l.type || "",
       curp: l.curp || "",
       nss: l.nss || "",
-      email: l.email || l.userEmail || ""
+      email: l.email || ""
     }));
 
     const headers = Object.keys(rows[0] || { fecha: "", tipo: "", curp: "", nss: "", email: "" });
@@ -1062,7 +1040,7 @@ function LogsPanel({ toast, onlyMine }) {
       <Card className="max-w-6xl">
         <CardHeader
           title={onlyMine ? "Mis consultas" : "Logs"}
-          subtitle="Filtros por usuario, tipo, fecha y búsqueda. Exporta CSV."
+          subtitle="Filtros por usuario, tipo, fecha, búsqueda y descargas (24h)."
           right={
             <div className="flex items-center gap-2">
               <Pill tone="gray">{filtered.length} resultados</Pill>
@@ -1072,12 +1050,7 @@ function LogsPanel({ toast, onlyMine }) {
         />
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <Input
-              label="Buscar"
-              placeholder="CURP / NSS / email..."
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
+            <Input label="Buscar" placeholder="CURP / NSS / email..." value={q} onChange={(e) => setQ(e.target.value)} />
 
             <Select label="Tipo" value={type} onChange={(e) => setType(e.target.value)}>
               <option value="all">Todos</option>
@@ -1163,7 +1136,7 @@ function LogsPanel({ toast, onlyMine }) {
 
       <Modal open={!!selected} title="Detalle de consulta" onClose={() => setSelected(null)}>
         {selected ? (
-          <div className="space-y-3 text-sm">
+          <div className="space-y-4 text-sm">
             <div className="flex items-center gap-2">
               <Pill tone="indigo">{typeLabel(selected.type)}</Pill>
               <Pill tone="gray">{selected.id}</Pill>
@@ -1191,6 +1164,27 @@ function LogsPanel({ toast, onlyMine }) {
                 </div>
               </div>
             </div>
+
+            {/* Descargas (si el log tiene files) */}
+            {Array.isArray(selected.files) && selected.files.length > 0 ? (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-gray-600">PDFs (expiran en 24h)</div>
+                {selected.files.map((f) => (
+                  <Button
+                    key={f.fileId}
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => downloadByFileId({ toast, fileId: f.fileId, filename: f.filename })}
+                  >
+                    Descargar: {f.filename}
+                  </Button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-gray-500">
+                Este registro no tiene PDFs guardados (probablemente fue generado antes del cambio).
+              </div>
+            )}
           </div>
         ) : null}
       </Modal>
