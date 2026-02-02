@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 
-const BACKEND_URL = import.meta?.env?.VITE_API_URL || "/api";
+const BACKEND_URL =
+  import.meta?.env?.VITE_API_URL || "https://docuexpress.onrender.com/api";
+
 
 
 
