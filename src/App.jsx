@@ -1,14 +1,47 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 
-/** Backend */
 const BACKEND_URL =
   import.meta?.env?.VITE_API_URL || "https://docuexpress.onrender.com/api";
 
-/* -------------------- UI utils -------------------- */
+/* ===================== utils ===================== */
 const cx = (...a) => a.filter(Boolean).join(" ");
 
-/* -------------------- Toast system (no alerts) -------------------- */
+/* ===================== toasts ===================== */
+function useToasts() {
+  const [toasts, setToasts] = useState([]);
+  const timers = useRef(new Map());
+
+  const push = (type, title, message, ttl = 3500) => {
+    const id =
+      (crypto?.randomUUID && crypto.randomUUID()) ||
+      String(Date.now() + Math.random());
+    const t = { id, type, title, message };
+    setToasts((prev) => [t, ...prev].slice(0, 5));
+    const tm = setTimeout(() => {
+      setToasts((prev) => prev.filter((x) => x.id !== id));
+      timers.current.delete(id);
+    }, ttl);
+    timers.current.set(id, tm);
+  };
+
+  const dismiss = (id) => {
+    const tm = timers.current.get(id);
+    if (tm) clearTimeout(tm);
+    timers.current.delete(id);
+    setToasts((prev) => prev.filter((x) => x.id !== id));
+  };
+
+  useEffect(() => {
+    return () => {
+      timers.current.forEach((tm) => clearTimeout(tm));
+      timers.current.clear();
+    };
+  }, []);
+
+  return { toasts, push, dismiss };
+}
+
 function ToastViewport({ toasts, dismiss }) {
   return (
     <div className="fixed top-4 right-4 z-[9999] w-[360px] max-w-[92vw] space-y-2">
@@ -29,7 +62,7 @@ function ToastViewport({ toasts, dismiss }) {
                 {t.title}
               </div>
               {t.message ? (
-                <div className="text-sm text-gray-600 mt-1 leading-snug">
+                <div className="text-sm text-gray-600 mt-1 leading-snug whitespace-pre-line">
                   {t.message}
                 </div>
               ) : null}
@@ -48,43 +81,7 @@ function ToastViewport({ toasts, dismiss }) {
   );
 }
 
-function useToasts() {
-  const [toasts, setToasts] = useState([]);
-  const timers = useRef(new Map());
-
-  const push = (type, title, message, ttl = 3500) => {
-    const id = crypto?.randomUUID?.() || String(Date.now() + Math.random());
-    const toast = { id, type, title, message };
-    setToasts((prev) => [toast, ...prev].slice(0, 5));
-
-    // auto dismiss
-    const tm = setTimeout(() => {
-      setToasts((prev) => prev.filter((x) => x.id !== id));
-      timers.current.delete(id);
-    }, ttl);
-
-    timers.current.set(id, tm);
-    return id;
-  };
-
-  const dismiss = (id) => {
-    const tm = timers.current.get(id);
-    if (tm) clearTimeout(tm);
-    timers.current.delete(id);
-    setToasts((prev) => prev.filter((x) => x.id !== id));
-  };
-
-  useEffect(() => {
-    return () => {
-      timers.current.forEach((tm) => clearTimeout(tm));
-      timers.current.clear();
-    };
-  }, []);
-
-  return { toasts, push, dismiss };
-}
-
-/* -------------------- UI atoms -------------------- */
+/* ===================== UI atoms ===================== */
 function Card({ className = "", children }) {
   return (
     <div
@@ -128,7 +125,6 @@ function Button({ className = "", variant = "solid", ...props }) {
   const ghost = "bg-transparent hover:bg-gray-100 text-gray-900";
   const danger =
     "bg-rose-600 text-white hover:bg-rose-700 shadow-[0_10px_25px_rgba(225,29,72,0.18)]";
-
   const styles =
     variant === "outline"
       ? outline
@@ -141,26 +137,16 @@ function Button({ className = "", variant = "solid", ...props }) {
   return <button className={cx(base, styles, className)} {...props} />;
 }
 
-function Input({ label, right, className = "", ...props }) {
+function Input({ label, className = "", ...props }) {
   return (
     <label className={cx("block", className)}>
       {label ? (
         <div className="text-xs font-semibold text-gray-600 mb-2">{label}</div>
       ) : null}
-      <div className="relative">
-        <input
-          className={cx(
-            "w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200",
-            right ? "pr-12" : ""
-          )}
-          {...props}
-        />
-        {right ? (
-          <div className="absolute right-2 top-1/2 -translate-y-1/2">
-            {right}
-          </div>
-        ) : null}
-      </div>
+      <input
+        className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200"
+        {...props}
+      />
     </label>
   );
 }
@@ -201,7 +187,7 @@ function Pill({ children, tone = "indigo" }) {
   );
 }
 
-/* -------------------- Modals -------------------- */
+/* ===================== modals ===================== */
 function Modal({ open, title, children, onClose, footer }) {
   if (!open) return null;
   return (
@@ -224,7 +210,15 @@ function Modal({ open, title, children, onClose, footer }) {
   );
 }
 
-function ConfirmModal({ open, title, message, confirmText, danger, onConfirm, onClose }) {
+function ConfirmModal({
+  open,
+  title,
+  message,
+  confirmText,
+  danger,
+  onConfirm,
+  onClose
+}) {
   return (
     <Modal
       open={open}
@@ -245,12 +239,14 @@ function ConfirmModal({ open, title, message, confirmText, danger, onConfirm, on
         </div>
       }
     >
-      <div className="text-sm text-gray-600 leading-relaxed">{message}</div>
+      <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">
+        {message}
+      </div>
     </Modal>
   );
 }
 
-/* -------------------- Helpers -------------------- */
+/* ===================== network helpers ===================== */
 async function safeJson(res) {
   try {
     return await res.json();
@@ -261,7 +257,6 @@ async function safeJson(res) {
 
 const authFetch = async (toast, url, options = {}) => {
   const token = localStorage.getItem("token");
-
   const res = await fetch(`${BACKEND_URL}${url}`, {
     ...options,
     headers: {
@@ -287,7 +282,7 @@ const authFetch = async (toast, url, options = {}) => {
   return data;
 };
 
-/* -------------------- App -------------------- */
+/* ===================== APP ===================== */
 export default function App() {
   const { toasts, push, dismiss } = useToasts();
   const toast = (type, title, message) => push(type, title, message);
@@ -302,11 +297,14 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
       });
+
       const data = await safeJson(res);
+
       if (!res.ok) {
         toast("error", "No se pudo iniciar sesión", data?.message || "Revisa tus credenciales");
         return;
       }
+
       localStorage.setItem("token", data.token);
       setUser(data.user);
       setScreen("app");
@@ -340,7 +338,7 @@ export default function App() {
   );
 }
 
-/* -------------------- Login -------------------- */
+/* ===================== LOGIN ===================== */
 function Login({ onLogin }) {
   const [email, setEmail] = useState("admin@docuexpress.com");
   const [password, setPassword] = useState("Admin123!");
@@ -378,7 +376,7 @@ function Login({ onLogin }) {
   );
 }
 
-/* -------------------- Shell -------------------- */
+/* ===================== SHELL ===================== */
 function Shell({ user, onLogout, toast }) {
   const role = user?.role || "user";
   const [section, setSection] = useState(role === "admin" ? "api" : "api");
@@ -458,8 +456,8 @@ function Shell({ user, onLogout, toast }) {
         </div>
       </aside>
 
-      <main className="flex-1 p-8">
-        <div className="flex items-center justify-between mb-6">
+      <main className="flex-1 p-8 space-y-6">
+        <div className="flex items-center justify-between">
           <div>
             <div className="text-xs text-gray-500">DocuExpress</div>
             <h1 className="text-2xl font-extrabold text-gray-900">
@@ -482,7 +480,7 @@ function Shell({ user, onLogout, toast }) {
   );
 }
 
-/* -------------------- API Panel -------------------- */
+/* ===================== API PANEL ===================== */
 function ApiPanel({ toast, onAfterSuccess }) {
   const [type, setType] = useState("semanas");
   const [curp, setCurp] = useState("");
@@ -495,7 +493,6 @@ function ApiPanel({ toast, onAfterSuccess }) {
   const pasteFromClipboard = async () => {
     try {
       const text = await navigator.clipboard.readText();
-
       const curpMatch = text.match(/[A-Z]{4}\d{6}[A-Z]{6}\d{2}/i);
       const nssMatch = text.match(/\b\d{11}\b/);
 
@@ -508,7 +505,7 @@ function ApiPanel({ toast, onAfterSuccess }) {
         toast("success", "Pegado", "Se detectó información desde tu portapapeles.");
       }
     } catch {
-      toast("error", "Permiso requerido", "No pude leer el portapapeles (requiere HTTPS y permiso).");
+      toast("error", "Permiso requerido", "No pude leer el portapapeles (HTTPS + permiso).");
     }
   };
 
@@ -531,8 +528,8 @@ function ApiPanel({ toast, onAfterSuccess }) {
       } else {
         toast("warn", "Sin PDF", "No se recibió la URL del PDF.");
       }
-    } catch (err) {
-      toast("error", "Error IMSS", err.message || "No se pudo generar el documento.");
+    } catch (e) {
+      toast("error", "Error IMSS", e.message);
     } finally {
       setLoading(false);
     }
@@ -562,7 +559,7 @@ function ApiPanel({ toast, onAfterSuccess }) {
       a.remove();
       window.URL.revokeObjectURL(fileUrl);
 
-      toast("success", "Descarga iniciada", `Archivo: ${type}_${curp}.pdf`);
+      toast("success", "Descarga iniciada", `${type}_${curp}.pdf`);
     } catch {
       toast("error", "Error", "Ocurrió un error al descargar.");
     }
@@ -572,7 +569,7 @@ function ApiPanel({ toast, onAfterSuccess }) {
     <Card className="max-w-3xl">
       <CardHeader
         title="Consulta IMSS"
-        subtitle="Genera documentos oficiales; cada consulta descuenta 1 crédito."
+        subtitle="Cada consulta descuenta 1 crédito."
         right={<Pill tone="indigo">1 crédito / consulta</Pill>}
       />
       <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -591,17 +588,17 @@ function ApiPanel({ toast, onAfterSuccess }) {
 
         <Input
           label="CURP"
+          placeholder="Ej. MAGC790705HTLRNR03"
           value={curp}
           onChange={(e) => setCurp(e.target.value.toUpperCase())}
-          placeholder="Ej. MAGC790705HTLRNR03"
         />
 
         <Input
           label="NSS"
+          placeholder={needsNss ? "Obligatorio" : "No requerido"}
           value={nss}
           onChange={(e) => setNss(e.target.value)}
           disabled={!needsNss}
-          placeholder={needsNss ? "Obligatorio para este trámite" : "No requerido"}
         />
 
         <div className="md:col-span-2 space-y-3">
@@ -624,20 +621,17 @@ function ApiPanel({ toast, onAfterSuccess }) {
   );
 }
 
-/* -------------------- Users Panel (Admin) -------------------- */
+/* ===================== USERS PANEL (ADMIN) ===================== */
 function UsersPanel({ toast }) {
   const [users, setUsers] = useState([]);
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // credit modal
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [targetUser, setTargetUser] = useState(null);
   const [delta, setDelta] = useState("");
   const [note, setNote] = useState("");
 
-  // confirm disable
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmUser, setConfirmUser] = useState(null);
 
@@ -657,60 +651,12 @@ function UsersPanel({ toast }) {
         method: "POST",
         body: JSON.stringify({ email, password })
       });
+      toast("success", "Usuario creado", email);
       setEmail("");
       setPassword("");
-      toast("success", "Usuario creado", email);
       load();
     } catch (e) {
       toast("error", "No se pudo crear", e.message);
-    }
-  };
-
-  const askToggleDisabled = (u) => {
-    setConfirmUser(u);
-    setConfirmOpen(true);
-  };
-
-  const toggleDisabled = async () => {
-    try {
-      const u = confirmUser;
-      await authFetch(toast, `/users/${u.id}/disabled`, {
-        method: "PATCH",
-        body: JSON.stringify({ disabled: !u.disabled })
-      });
-      toast(
-        "success",
-        u.disabled ? "Usuario habilitado" : "Usuario deshabilitado",
-        u.email
-      );
-      setConfirmOpen(false);
-      setConfirmUser(null);
-      load();
-    } catch (e) {
-      toast("error", "Error", e.message);
-    }
-  };
-
-  const resetPassword = async (u) => {
-    try {
-      const data = await authFetch(toast, `/users/${u.id}/reset-password`, {
-        method: "POST"
-      });
-      if (!data) return;
-      toast("info", "Password temporal", `Usuario: ${u.email}`);
-      // Mostramos la contraseña temporal en modal simple usando confirm modal
-      // (esto no es browser alert; es nuestra UI)
-      setTargetUser({ ...u, tempPassword: data.tempPassword });
-      setCreditsOpen(false);
-      // modal rápido con confirmOpen reutilizado
-      setConfirmUser({
-        ...u,
-        tempPassword: data.tempPassword,
-        disabled: u.disabled
-      });
-      setConfirmOpen(true);
-    } catch (e) {
-      toast("error", "No se pudo resetear", e.message);
     }
   };
 
@@ -740,12 +686,44 @@ function UsersPanel({ toast }) {
     }
   };
 
+  const resetPassword = async (u) => {
+    try {
+      const data = await authFetch(toast, `/users/${u.id}/reset-password`, { method: "POST" });
+      if (!data) return;
+      setConfirmUser({ ...u, mode: "temp", tempPassword: data.tempPassword });
+      setConfirmOpen(true);
+    } catch (e) {
+      toast("error", "No se pudo resetear", e.message);
+    }
+  };
+
+  const askToggleDisabled = (u) => {
+    setConfirmUser({ ...u, mode: "toggle" });
+    setConfirmOpen(true);
+  };
+
+  const toggleDisabled = async () => {
+    try {
+      const u = confirmUser;
+      await authFetch(toast, `/users/${u.id}/disabled`, {
+        method: "PATCH",
+        body: JSON.stringify({ disabled: !u.disabled })
+      });
+      toast("success", u.disabled ? "Usuario habilitado" : "Usuario deshabilitado", u.email);
+      setConfirmOpen(false);
+      setConfirmUser(null);
+      load();
+    } catch (e) {
+      toast("error", "Error", e.message);
+    }
+  };
+
   return (
     <>
       <Card className="max-w-6xl">
         <CardHeader
           title="Usuarios"
-          subtitle="Crear, deshabilitar, reset password y ajustar créditos."
+          subtitle="Crear, resetear contraseña, deshabilitar y ajustar créditos."
           right={<Pill tone="gray">{users.length} usuarios</Pill>}
         />
         <CardContent className="space-y-5">
@@ -777,11 +755,7 @@ function UsersPanel({ toast }) {
                     <td className="px-4 py-3"><Pill>{u.role}</Pill></td>
                     <td className="px-4 py-3"><Pill tone="indigo">{u.credits}</Pill></td>
                     <td className="px-4 py-3">
-                      {u.disabled ? (
-                        <Pill tone="rose">Deshabilitado</Pill>
-                      ) : (
-                        <Pill tone="emerald">Activo</Pill>
-                      )}
+                      {u.disabled ? <Pill tone="rose">Deshabilitado</Pill> : <Pill tone="emerald">Activo</Pill>}
                     </td>
                     <td className="px-4 py-3 text-right space-x-2">
                       <Button variant="outline" onClick={() => openCreditsModal(u)}>
@@ -812,19 +786,15 @@ function UsersPanel({ toast }) {
         </CardContent>
       </Card>
 
-      {/* Modal ajustar créditos */}
+      {/* Modal: Ajustar créditos */}
       <Modal
         open={creditsOpen}
         title={`Ajustar créditos: ${targetUser?.email || ""}`}
         onClose={() => setCreditsOpen(false)}
         footer={
           <div className="flex gap-2">
-            <Button className="flex-1" onClick={applyCredits}>
-              Guardar
-            </Button>
-            <Button variant="outline" className="flex-1" onClick={() => setCreditsOpen(false)}>
-              Cancelar
-            </Button>
+            <Button className="flex-1" onClick={applyCredits}>Guardar</Button>
+            <Button variant="outline" className="flex-1" onClick={() => setCreditsOpen(false)}>Cancelar</Button>
           </div>
         }
       >
@@ -841,9 +811,9 @@ function UsersPanel({ toast }) {
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
-          <p className="text-xs text-gray-500">
-            Solo enteros. Si es negativo, se descuentan créditos (nunca baja de 0).
-          </p>
+          <div className="text-xs text-gray-500">
+            Solo enteros. Negativo descuenta (nunca baja de 0).
+          </div>
         </div>
       </Modal>
 
@@ -851,27 +821,33 @@ function UsersPanel({ toast }) {
       <ConfirmModal
         open={confirmOpen}
         title={
-          confirmUser?.tempPassword
+          confirmUser?.mode === "temp"
             ? "Contraseña temporal"
             : confirmUser?.disabled
             ? "Habilitar usuario"
             : "Deshabilitar usuario"
         }
         message={
-          confirmUser?.tempPassword
+          confirmUser?.mode === "temp"
             ? `Usuario: ${confirmUser.email}\n\nPassword temporal:\n${confirmUser.tempPassword}\n\n(Cópiala y pásasela al usuario)`
             : confirmUser?.disabled
             ? `¿Deseas habilitar a ${confirmUser?.email}?`
             : `¿Deseas deshabilitar a ${confirmUser?.email}?`
         }
-        confirmText={confirmUser?.tempPassword ? "Entendido" : confirmUser?.disabled ? "Habilitar" : "Deshabilitar"}
-        danger={!confirmUser?.tempPassword && !confirmUser?.disabled}
+        confirmText={
+          confirmUser?.mode === "temp"
+            ? "Entendido"
+            : confirmUser?.disabled
+            ? "Habilitar"
+            : "Deshabilitar"
+        }
+        danger={confirmUser?.mode !== "temp" && !confirmUser?.disabled}
         onClose={() => {
           setConfirmOpen(false);
           setConfirmUser(null);
         }}
         onConfirm={() => {
-          if (confirmUser?.tempPassword) {
+          if (confirmUser?.mode === "temp") {
             setConfirmOpen(false);
             setConfirmUser(null);
             return;
@@ -883,7 +859,7 @@ function UsersPanel({ toast }) {
   );
 }
 
-/* -------------------- Credit Logs (Admin) -------------------- */
+/* ===================== CREDIT LOGS (ADMIN) ===================== */
 function CreditLogsPanel({ toast }) {
   const [logs, setLogs] = useState([]);
   const [filterEmail, setFilterEmail] = useState("");
@@ -927,9 +903,7 @@ function CreditLogsPanel({ toast }) {
                   {l.delta > 0 ? `+${l.delta}` : `${l.delta}`}
                 </Pill>
                 <span className="text-sm font-semibold text-gray-900">{l.userEmail}</span>
-                <span className="text-sm text-gray-500">
-                  {l.before} → {l.after}
-                </span>
+                <span className="text-sm text-gray-500">{l.before} → {l.after}</span>
               </div>
               <div className="text-xs text-gray-500 mt-2">
                 Admin: {l.adminEmail} · {new Date(l.createdAt).toLocaleString()}
@@ -946,15 +920,11 @@ function CreditLogsPanel({ toast }) {
   );
 }
 
-/* -------------------- Credits panel -------------------- */
+/* ===================== CREDITS PANEL ===================== */
 function CreditsPanel({ credits }) {
   return (
     <Card className="max-w-3xl">
-      <CardHeader
-        title="Créditos"
-        subtitle="Se descuentan por documento generado."
-        right={<Pill tone="indigo">Saldo</Pill>}
-      />
+      <CardHeader title="Créditos" subtitle="Se descuentan por documento generado." right={<Pill tone="indigo">Saldo</Pill>} />
       <CardContent>
         <div className="text-5xl font-extrabold text-gray-900">{credits ?? "—"}</div>
       </CardContent>
@@ -962,24 +932,21 @@ function CreditsPanel({ credits }) {
   );
 }
 
-/* -------------------- Logs panel -------------------- */
+/* ===================== LOGS WOW ===================== */
 function LogsPanel({ toast, onlyMine }) {
   const [logs, setLogs] = useState([]);
-  const [users, setUsers] = useState([]); // admin-only para filtro usuario
+  const [users, setUsers] = useState([]);
   const [selected, setSelected] = useState(null);
 
-  // Filtros
   const [q, setQ] = useState("");
   const [type, setType] = useState("all");
-  const [userEmail, setUserEmail] = useState("all"); // admin-only
-  const [from, setFrom] = useState(""); // YYYY-MM-DD
-  const [to, setTo] = useState(""); // YYYY-MM-DD
+  const [userEmail, setUserEmail] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
 
-  // Paginación
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
-  // Carga logs
   useEffect(() => {
     const url = onlyMine ? "/logs/me" : "/logs";
     authFetch(toast, url)
@@ -990,7 +957,6 @@ function LogsPanel({ toast, onlyMine }) {
       .catch(() => setLogs([]));
   }, [onlyMine]);
 
-  // Carga usuarios solo si es admin (onlyMine=false)
   useEffect(() => {
     if (onlyMine) return;
     authFetch(toast, "/users")
@@ -1006,7 +972,7 @@ function LogsPanel({ toast, onlyMine }) {
     if (t === "semanas") return "Semanas";
     if (t === "vigencia") return "Vigencia";
     if (t === "noderecho") return "No derechohabiencia";
-    return t;
+    return t || "";
   };
 
   const inDateRange = (iso) => {
@@ -1028,17 +994,10 @@ function LogsPanel({ toast, onlyMine }) {
 
     return logs
       .filter((l) => {
-        // tipo
         if (type !== "all" && l.type !== type) return false;
-
-        // usuario (solo admin)
-        if (!onlyMine && userEmail !== "all" && (l.email || "") !== userEmail)
-          return false;
-
-        // fecha
+        if (!onlyMine && userEmail !== "all" && (l.email || "") !== userEmail) return false;
         if (!inDateRange(l.createdAt)) return false;
 
-        // búsqueda texto
         if (!text) return true;
         const hay = [
           l.type,
@@ -1056,16 +1015,14 @@ function LogsPanel({ toast, onlyMine }) {
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }, [logs, q, type, userEmail, from, to, onlyMine]);
 
-  // Paginación
+  useEffect(() => {
+    setPage(1);
+  }, [q, type, userEmail, from, to, onlyMine]);
+
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageSafe = Math.min(page, totalPages);
   const start = (pageSafe - 1) * pageSize;
   const pageItems = filtered.slice(start, start + pageSize);
-
-  useEffect(() => {
-    // Si cambian filtros, volver a página 1
-    setPage(1);
-  }, [q, type, userEmail, from, to, onlyMine]);
 
   const exportCSV = () => {
     const rows = filtered.map((l) => ({
@@ -1083,12 +1040,7 @@ function LogsPanel({ toast, onlyMine }) {
       rows
         .map((r) =>
           headers
-            .map((h) => {
-              const val = String(r[h] ?? "");
-              // escape
-              const safe = val.replaceAll('"', '""');
-              return `"${safe}"`;
-            })
+            .map((h) => `"${String(r[h] ?? "").replaceAll('"', '""')}"`)
             .join(",")
         )
         .join("\n");
@@ -1097,14 +1049,11 @@ function LogsPanel({ toast, onlyMine }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${onlyMine ? "mis_consultas" : "logs"}_${new Date()
-      .toISOString()
-      .slice(0, 10)}.csv`;
+    a.download = `${onlyMine ? "mis_consultas" : "logs"}_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-
     toast("success", "CSV exportado", "Se descargó el archivo CSV.");
   };
 
@@ -1113,18 +1062,15 @@ function LogsPanel({ toast, onlyMine }) {
       <Card className="max-w-6xl">
         <CardHeader
           title={onlyMine ? "Mis consultas" : "Logs"}
-          subtitle="Filtra por usuario, tipo, fecha y texto. Exporta CSV cuando quieras."
+          subtitle="Filtros por usuario, tipo, fecha y búsqueda. Exporta CSV."
           right={
             <div className="flex items-center gap-2">
               <Pill tone="gray">{filtered.length} resultados</Pill>
-              <Button variant="outline" onClick={exportCSV}>
-                Exportar CSV
-              </Button>
+              <Button variant="outline" onClick={exportCSV}>Exportar CSV</Button>
             </div>
           }
         />
         <CardContent className="space-y-4">
-          {/* Filtros */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <Input
               label="Buscar"
@@ -1142,16 +1088,10 @@ function LogsPanel({ toast, onlyMine }) {
             </Select>
 
             {!onlyMine ? (
-              <Select
-                label="Usuario"
-                value={userEmail}
-                onChange={(e) => setUserEmail(e.target.value)}
-              >
+              <Select label="Usuario" value={userEmail} onChange={(e) => setUserEmail(e.target.value)}>
                 <option value="all">Todos</option>
                 {users.map((u) => (
-                  <option key={u.id} value={u.email}>
-                    {u.email}
-                  </option>
+                  <option key={u.id} value={u.email}>{u.email}</option>
                 ))}
               </Select>
             ) : (
@@ -1159,22 +1099,11 @@ function LogsPanel({ toast, onlyMine }) {
             )}
 
             <div className="grid grid-cols-2 gap-2">
-              <Input
-                label="Desde"
-                type="date"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-              />
-              <Input
-                label="Hasta"
-                type="date"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-              />
+              <Input label="Desde" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+              <Input label="Hasta" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
           </div>
 
-          {/* Tabla */}
           <div className="overflow-auto border border-gray-100 rounded-2xl">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-gray-600">
@@ -1183,9 +1112,7 @@ function LogsPanel({ toast, onlyMine }) {
                   <th className="text-left px-4 py-3 font-semibold">Tipo</th>
                   <th className="text-left px-4 py-3 font-semibold">CURP</th>
                   <th className="text-left px-4 py-3 font-semibold">NSS</th>
-                  {!onlyMine && (
-                    <th className="text-left px-4 py-3 font-semibold">Usuario</th>
-                  )}
+                  {!onlyMine && <th className="text-left px-4 py-3 font-semibold">Usuario</th>}
                   <th className="text-right px-4 py-3 font-semibold">Detalle</th>
                 </tr>
               </thead>
@@ -1200,13 +1127,9 @@ function LogsPanel({ toast, onlyMine }) {
                     </td>
                     <td className="px-4 py-3 font-semibold text-gray-900">{l.curp}</td>
                     <td className="px-4 py-3 text-gray-700">{l.nss || "—"}</td>
-                    {!onlyMine && (
-                      <td className="px-4 py-3 text-gray-700">{l.email || "—"}</td>
-                    )}
+                    {!onlyMine && <td className="px-4 py-3 text-gray-700">{l.email || "—"}</td>}
                     <td className="px-4 py-3 text-right">
-                      <Button variant="outline" onClick={() => setSelected(l)}>
-                        Ver
-                      </Button>
+                      <Button variant="outline" onClick={() => setSelected(l)}>Ver</Button>
                     </td>
                   </tr>
                 ))}
@@ -1222,24 +1145,15 @@ function LogsPanel({ toast, onlyMine }) {
             </table>
           </div>
 
-          {/* Paginación */}
           <div className="flex items-center justify-between">
             <div className="text-sm text-gray-500">
               Página {pageSafe} de {totalPages}
             </div>
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={pageSafe <= 1}
-              >
+              <Button variant="outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={pageSafe <= 1}>
                 Anterior
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={pageSafe >= totalPages}
-              >
+              <Button variant="outline" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={pageSafe >= totalPages}>
                 Siguiente
               </Button>
             </div>
@@ -1247,12 +1161,7 @@ function LogsPanel({ toast, onlyMine }) {
         </CardContent>
       </Card>
 
-      {/* Modal Detalle */}
-      <Modal
-        open={!!selected}
-        title="Detalle de consulta"
-        onClose={() => setSelected(null)}
-      >
+      <Modal open={!!selected} title="Detalle de consulta" onClose={() => setSelected(null)}>
         {selected ? (
           <div className="space-y-3 text-sm">
             <div className="flex items-center gap-2">
@@ -1282,14 +1191,9 @@ function LogsPanel({ toast, onlyMine }) {
                 </div>
               </div>
             </div>
-
-            <div className="text-xs text-gray-500">
-              Tip: pronto agregamos link de “Descargar” desde historial (si guardas pdfUrl en logs).
-            </div>
           </div>
         ) : null}
       </Modal>
     </>
   );
 }
-
