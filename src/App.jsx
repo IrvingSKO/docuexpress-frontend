@@ -239,12 +239,43 @@ function ApiPanel() {
       </Button>
 
       {pdfUrl && (
-        <a
-          href={`${BACKEND_URL}/download?url=${encodeURIComponent(pdfUrl)}`}
-          className="block mt-4 text-indigo-700 underline font-semibold"
-        >
-          Descargar PDF
-        </a>
+        <button
+  className="block mt-4 text-indigo-700 underline font-semibold"
+  onClick={async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const url = `${BACKEND_URL}/download?url=${encodeURIComponent(pdfUrl)}`;
+
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err?.message || "No se pudo descargar");
+        return;
+      }
+
+      const blob = await res.blob();
+      const fileUrl = window.URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = fileUrl;
+      a.download = "docuexpress.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      window.URL.revokeObjectURL(fileUrl);
+    } catch (e) {
+      console.error(e);
+      alert("Error al descargar");
+    }
+  }}
+>
+  Descargar PDF
+</button>
+
       )}
     </Card>
   );
