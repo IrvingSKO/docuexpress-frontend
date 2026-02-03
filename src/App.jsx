@@ -67,27 +67,42 @@ export default function App() {
   const [files, setFiles] = useState([]);
 
   // ================= LOGIN =================
-  const login = async () => {
+  const onLogin = async () => {
+  try {
     const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
+
     const data = await safeJson(res);
+
     if (!res.ok) {
-      showToast({ type: "error", title: "Login fallido", message: data.message });
+      showToast({
+        type: "error",
+        title: "Login fallido",
+        message: data.message || `HTTP ${res.status}`,
+      });
       return;
     }
+
     localStorage.setItem("token", data.token);
     setMe(data.user);
-    showToast({ type: "success", title: "Bienvenido", message: data.user.email });
-  };
 
-  const logout = () => {
-    localStorage.removeItem("token");
-    setMe(null);
-    setView("consultar");
-  };
+    showToast({
+      type: "success",
+      title: "Sesión iniciada",
+      message: "Bienvenido 👋",
+    });
+  } catch {
+    showToast({
+      type: "error",
+      title: "Error de red",
+      message: "No se pudo conectar al backend.",
+    });
+  }
+};
+
 
   // ================= LOAD ADMIN =================
   useEffect(() => {
