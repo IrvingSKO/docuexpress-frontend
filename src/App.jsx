@@ -465,27 +465,38 @@ export default function App() {
   };
 
   // ------------------ Admin: reset password ------------------
-  const openResetPass = (u) => {
-    setResetPassUser(u);
-    setGeneratedPass("");
-    setModalResetPass(true);
-  };
+  const onResetPassword = async () => {
+  try {
+    const res = await authFetch(`/api/users/${resetPassUser.id}/reset-password`, {
+      method: "POST",
+    });
 
-  const doResetPassword = async () => {
-    if (!resetPassUser) return;
-    try {
-      const res = await authFetch(`/api/users/${resetPassUser.id}/reset-password`, { method: "POST" });
-      const data = await safeJson(res);
-      if (!res.ok tells) {
-        showToast({ type: "error", title: "No se pudo resetear", message: data.message || `HTTP ${res.status}` });
-        return;
-      }
-      setGeneratedPass(data.newPassword || "");
-      showToast({ type: "success", title: "Password reseteada", message: "Cópiala y guárdala." });
-    } catch {
-      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar." });
+    const data = await safeJson(res);
+
+    if (!res.ok) {
+      showToast({
+        type: "error",
+        title: "No se pudo resetear",
+        message: data.message || `HTTP ${res.status}`,
+      });
+      return;
     }
-  };
+
+    showToast({
+      type: "success",
+      title: "Contraseña reseteada",
+      message: `Nueva contraseña: ${data.newPassword || "(revisa respuesta del backend)"}`,
+    });
+
+    setResetPassUser(null);
+  } catch (e) {
+    showToast({
+      type: "error",
+      title: "Error de red",
+      message: "No se pudo conectar al backend.",
+    });
+  }
+};
 
   // ------------------ Admin: load credit logs ------------------
   const loadCreditLogs = async () => {
