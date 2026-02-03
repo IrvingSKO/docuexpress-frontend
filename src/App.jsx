@@ -1,6 +1,6 @@
  import React, { useEffect, useMemo, useRef, useState } from "react";
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL; // ej: https://docuexpress.onrender.com
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "https://docuexpress.onrender.com";
 
 // ------------------ UI helpers (Toasts) ------------------
 function Toast({ toast, onClose }) {
