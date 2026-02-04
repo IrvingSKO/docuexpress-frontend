@@ -1,41 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-/** ===================== CONFIG ===================== */
+/**
+ * BACKEND_URL:
+ * - usa VITE_BACKEND_URL si existe
+ * - si no, fallback a Render (tu URL)
+ */
 const BACKEND_URL =
   (import.meta?.env?.VITE_BACKEND_URL && String(import.meta.env.VITE_BACKEND_URL).trim()) ||
   "https://docuexpress.onrender.com";
 
-const SUPERADMIN_EMAIL = "irvingestray@gmail.com";
-
-/** ===================== HELPERS ===================== */
-function cx(...arr) {
-  return arr.filter(Boolean).join(" ");
-}
-
-function fmtDate(iso) {
-  try {
-    const d = new Date(iso);
-    return d.toISOString().replace("T", " ").replace("Z", "");
-  } catch {
-    return iso || "";
-  }
-}
-
-function withinRange(iso, rangeKey) {
-  if (!rangeKey || rangeKey === "all") return true;
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return true;
-  const now = Date.now();
-
-  const day = 24 * 60 * 60 * 1000;
-  if (rangeKey === "24h") return now - t <= day;
-  if (rangeKey === "7d") return now - t <= 7 * day;
-  if (rangeKey === "30d") return now - t <= 30 * day;
-  return true;
-}
-
+// ===================== utils =====================
 async function safeJson(res) {
-  const txt = await res.text();
+  const txt = await res.text().catch(() => "");
   try {
     return txt ? JSON.parse(txt) : {};
   } catch {
@@ -43,40 +19,191 @@ async function safeJson(res) {
   }
 }
 
-async function authFetch(path, opts = {}) {
+function cx(...arr) {
+  return arr.filter(Boolean).join(" ");
+}
+
+function formatDate(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toISOString();
+  } catch {
+    return iso;
+  }
+}
+
+function withinRange(iso, mode) {
+  // mode: "24h" | "7d" | "30d" | "all"
+  if (!iso) return false;
+  if (mode === "all") return true;
+  const now = Date.now();
+  const t = new Date(iso).getTime();
+  const diff = now - t;
+  if (Number.isNaN(t)) return false;
+  if (mode === "24h") return diff <= 24 * 60 * 60 * 1000;
+  if (mode === "7d") return diff <= 7 * 24 * 60 * 60 * 1000;
+  if (mode === "30d") return diff <= 30 * 24 * 60 * 60 * 1000;
+  return true;
+}
+
+function sumCredits(users) {
+  return (users || []).reduce((acc, u) => acc + (Number(u.credits) || 0), 0);
+}
+
+// ===================== auth fetch =====================
+async function authFetch(path, options = {}) {
   const token = localStorage.getItem("token");
-  return fetch(`${BACKEND_URL}${path}`, {
-    ...opts,
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    ...options,
     headers: {
-      ...(opts.headers || {}),
-      ...(opts.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {}),
+      ...(options.body && !options.headers?.["Content-Type"] ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
+  return res;
 }
 
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename || "documento.pdf";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
+// ===================== UI primitives =====================
+const styles = {
+  page: {
+    fontFamily:
+      'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif',
+    background: "#f6f7fb",
+    minHeight: "100vh",
+    color: "#0f172a",
+  },
+  shell: {
+    display: "grid",
+    gridTemplateColumns: "300px 1fr",
+    minHeight: "100vh",
+  },
+  aside: {
+    background: "#fff",
+    borderRight: "1px solid #e5e7eb",
+    padding: 18,
+  },
+  main: {
+    padding: 28,
+  },
+  brand: {
+    fontSize: 24,
+    fontWeight: 900,
+    letterSpacing: -0.6,
+    marginBottom: 18,
+  },
+  badgeSaas: {
+    marginLeft: 10,
+    fontSize: 12,
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid #e5e7eb",
+    background: "#f8fafc",
+    fontWeight: 800,
+    color: "#0f172a",
+  },
+  card: {
+    background: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 18,
+    boxShadow: "0 22px 50px rgba(0,0,0,.08)",
+  },
+  cardHeader: {
+    padding: 18,
+    borderBottom: "1px solid #eef2f7",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  cardBody: {
+    padding: 18,
+  },
+  h1: { fontSize: 34, fontWeight: 950, letterSpacing: -0.8, margin: 0 },
+  subtitle: { color: "#64748b", marginTop: 8, fontSize: 14 },
+  pill: (tone) => {
+    const map = {
+      indigo: { bg: "#eef2ff", fg: "#3730a3", bd: "#c7d2fe" },
+      cyan: { bg: "#ecfeff", fg: "#155e75", bd: "#a5f3fc" },
+      green: { bg: "#f0fdf4", fg: "#166534", bd: "#bbf7d0" },
+      red: { bg: "#fef2f2", fg: "#7f1d1d", bd: "#fecaca" },
+      gray: { bg: "#f8fafc", fg: "#0f172a", bd: "#e5e7eb" },
+      purple: { bg: "#f5f3ff", fg: "#5b21b6", bd: "#ddd6fe" },
+    };
+    const c = map[tone] || map.gray;
+    return {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 12,
+      padding: "6px 10px",
+      borderRadius: 999,
+      border: `1px solid ${c.bd}`,
+      background: c.bg,
+      color: c.fg,
+      fontWeight: 800,
+      lineHeight: 1,
+      whiteSpace: "nowrap",
+    };
+  },
+  btn: (variant = "primary") => {
+    const base = {
+      borderRadius: 14,
+      padding: "10px 14px",
+      fontWeight: 900,
+      cursor: "pointer",
+      border: "1px solid transparent",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 8,
+      justifyContent: "center",
+      userSelect: "none",
+    };
+    const v = {
+      primary: { background: "#4f46e5", color: "#fff" },
+      soft: { background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe" },
+      ghost: { background: "#fff", color: "#0f172a", border: "1px solid #e5e7eb" },
+      danger: { background: "#ef4444", color: "#fff" },
+    };
+    return { ...base, ...(v[variant] || v.primary) };
+  },
+  input: {
+    width: "100%",
+    padding: 12,
+    borderRadius: 14,
+    border: "1px solid #e5e7eb",
+    outline: "none",
+    fontSize: 14,
+    background: "#fff",
+  },
+  label: { fontSize: 12, fontWeight: 900, marginBottom: 6, color: "#0f172a" },
+  sectionTitle: { fontSize: 12, color: "#64748b", fontWeight: 900, margin: "18px 0 10px" },
+  navBtn: (active) => ({
+    width: "100%",
+    textAlign: "left",
+    padding: "12px 14px",
+    borderRadius: 16,
+    border: "1px solid #e5e7eb",
+    background: active ? "#4f46e5" : "#fff",
+    color: active ? "#fff" : "#0f172a",
+    fontWeight: 950,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+  }),
+};
 
-/** ===================== UI: TOAST ===================== */
+// ===================== Toast =====================
 function Toast({ toast, onClose }) {
   if (!toast) return null;
 
-  const map = {
+  const typeStyles = {
     success: { border: "#22c55e", bg: "#f0fdf4", title: "#166534" },
     error: { border: "#ef4444", bg: "#fef2f2", title: "#7f1d1d" },
     info: { border: "#6366f1", bg: "#eef2ff", title: "#312e81" },
   };
-
-  const s = map[toast.type || "info"];
+  const s = typeStyles[toast.type || "info"];
 
   return (
     <div style={{ position: "fixed", right: 20, bottom: 20, width: 380, zIndex: 9999 }}>
@@ -84,17 +211,15 @@ function Toast({ toast, onClose }) {
         style={{
           background: s.bg,
           border: `1px solid ${s.border}`,
-          borderRadius: 16,
+          borderRadius: 14,
           padding: 14,
           boxShadow: "0 18px 40px rgba(0,0,0,.12)",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
           <div>
-            <div style={{ fontWeight: 900, color: s.title, marginBottom: 4 }}>
-              {toast.title}
-            </div>
-            <div style={{ fontSize: 13, color: "#111827", opacity: 0.9, lineHeight: 1.45 }}>
+            <div style={{ fontWeight: 950, color: s.title, marginBottom: 4 }}>{toast.title}</div>
+            <div style={{ fontSize: 13, color: "#111827", opacity: 0.9, lineHeight: 1.4 }}>
               {toast.message}
             </div>
           </div>
@@ -106,7 +231,7 @@ function Toast({ toast, onClose }) {
               cursor: "pointer",
               fontSize: 18,
               lineHeight: 1,
-              padding: 8,
+              padding: 6,
               borderRadius: 10,
             }}
             title="Cerrar"
@@ -119,280 +244,183 @@ function Toast({ toast, onClose }) {
   );
 }
 
-/** ===================== UI: SMALL COMPONENTS ===================== */
-function Pill({ children, tone = "gray" }) {
-  const t = {
-    gray: { bg: "#f3f4f6", bd: "#e5e7eb", fg: "#111827" },
-    indigo: { bg: "#eef2ff", bd: "#c7d2fe", fg: "#3730a3" },
-    cyan: { bg: "#ecfeff", bd: "#a5f3fc", fg: "#155e75" },
-    green: { bg: "#f0fdf4", bd: "#bbf7d0", fg: "#166534" },
-    red: { bg: "#fef2f2", bd: "#fecaca", fg: "#7f1d1d" },
-  }[tone];
-
-  return (
-    <span
-      style={{
-        fontSize: 12,
-        padding: "4px 10px",
-        borderRadius: 999,
-        background: t.bg,
-        border: `1px solid ${t.bd}`,
-        color: t.fg,
-        fontWeight: 800,
-        display: "inline-flex",
-        gap: 6,
-        alignItems: "center",
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Card({ title, subtitle, right, children }) {
+// ===================== Modal =====================
+function Modal({ open, title, subtitle, children, onClose }) {
+  if (!open) return null;
   return (
     <div
+      onMouseDown={onClose}
       style={{
-        background: "#fff",
-        borderRadius: 18,
-        border: "1px solid #e5e7eb",
-        boxShadow: "0 22px 50px rgba(0,0,0,.08)",
-        overflow: "hidden",
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, .45)",
+        zIndex: 9998,
+        display: "grid",
+        placeItems: "center",
+        padding: 18,
       }}
     >
       <div
+        onMouseDown={(e) => e.stopPropagation()}
         style={{
-          padding: 18,
-          borderBottom: "1px solid #f1f5f9",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 10,
+          width: "min(680px, 100%)",
+          background: "#fff",
+          borderRadius: 18,
+          border: "1px solid #e5e7eb",
+          boxShadow: "0 30px 80px rgba(0,0,0,.22)",
+          overflow: "hidden",
         }}
       >
-        <div>
-          <div style={{ fontWeight: 950, letterSpacing: -0.3, fontSize: 18 }}>{title}</div>
-          {subtitle ? <div style={{ color: "#6b7280", fontSize: 13 }}>{subtitle}</div> : null}
+        <div style={{ padding: 18, borderBottom: "1px solid #eef2f7" }}>
+          <div style={{ fontWeight: 950, fontSize: 16 }}>{title}</div>
+          {subtitle ? <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>{subtitle}</div> : null}
         </div>
-        {right || null}
+        <div style={{ padding: 18 }}>{children}</div>
       </div>
-      <div style={{ padding: 18 }}>{children}</div>
     </div>
   );
 }
 
-function PrimaryButton({ children, onClick, disabled, style }) {
+// ===================== Small components =====================
+function StatCard({ title, value, icon }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
+    <div
       style={{
-        width: "100%",
-        padding: 12,
-        borderRadius: 14,
-        border: "none",
-        background: disabled ? "#9ca3af" : "#4f46e5",
-        color: "#fff",
-        fontWeight: 950,
-        cursor: disabled ? "not-allowed" : "pointer",
-        ...style,
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function SoftButton({ children, onClick, disabled, style, title }) {
-  return (
-    <button
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        padding: "10px 12px",
-        borderRadius: 14,
-        border: "1px solid #e5e7eb",
-        background: "#fff",
-        fontWeight: 900,
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.55 : 1,
-        ...style,
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function GhostLink({ children, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        border: "none",
-        background: "transparent",
-        color: "#4f46e5",
-        fontWeight: 950,
-        cursor: "pointer",
-        textDecoration: "underline",
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Input({ value, onChange, placeholder, type = "text", right, style }) {
-  return (
-    <div style={{ position: "relative" }}>
-      <input
-        value={value}
-        type={type}
-        onChange={onChange}
-        placeholder={placeholder}
-        style={{
-          width: "100%",
-          padding: right ? "12px 44px 12px 12px" : "12px",
-          borderRadius: 14,
-          border: "1px solid #e5e7eb",
-          outline: "none",
-          ...style,
-        }}
-      />
-      {right ? (
-        <div style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)" }}>
-          {right}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function PdfDownloadButton({ label, status, onClick }) {
-  // status: "idle" | "downloading" | "done" | "error"
-  const isLoading = status === "downloading";
-  const tone =
-    status === "done" ? "green" : status === "error" ? "red" : status === "downloading" ? "indigo" : "gray";
-
-  return (
-    <button
-      onClick={onClick}
-      disabled={isLoading}
-      style={{
-        width: "100%",
-        textAlign: "left",
-        padding: 12,
-        borderRadius: 14,
-        border: "1px solid #e5e7eb",
-        background: "#f8fafc",
-        cursor: isLoading ? "not-allowed" : "pointer",
+        ...styles.card,
+        padding: 18,
+        borderRadius: 18,
         display: "flex",
-        alignItems: "center",
         justifyContent: "space-between",
-        gap: 10,
-        fontWeight: 900,
+        gap: 12,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontSize: 18 }}>📄</span>
-        <span style={{ fontSize: 13, color: "#111827" }}>{label}</span>
+      <div>
+        <div style={{ color: "#64748b", fontSize: 13, fontWeight: 900 }}>{title}</div>
+        <div style={{ fontSize: 26, fontWeight: 950, letterSpacing: -0.6, marginTop: 10 }}>{value}</div>
       </div>
-      <Pill tone={tone}>
-        {status === "downloading" ? "Descargando…" : status === "done" ? "Listo" : status === "error" ? "Error" : "Descargar"}
-      </Pill>
+      <div style={{ fontSize: 18, opacity: 0.8 }}>{icon}</div>
+    </div>
+  );
+}
+
+function PdfButton({ state, onClick }) {
+  // state: "ready" | "downloading" | "success" | "error"
+  const map = {
+    ready: { text: "PDF", variant: "soft" },
+    downloading: { text: "Descargando…", variant: "ghost" },
+    success: { text: "OK", variant: "soft" },
+    error: { text: "Error", variant: "danger" },
+  };
+  const s = map[state] || map.ready;
+  return (
+    <button onClick={onClick} style={styles.btn(s.variant)} disabled={state === "downloading"}>
+      {s.text}
     </button>
   );
 }
 
-/** ===================== APP ===================== */
+// ===================== APP =====================
 export default function App() {
+  // Toast
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
-
   const showToast = (t) => {
     setToast(t);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   };
 
-  // env guard (solo aviso)
+  // Session/user
+  const [me, setMe] = useState(null);
+  const isLogged = !!me;
+  const isAdmin = me?.role === "admin";
+  const isSuperAdmin = me?.email === "irvingestray@gmail.com";
+
+  // Login form
+  const [email, setEmail] = useState("admin@docuexpress.com");
+  const [password, setPassword] = useState("");
+
+  // Navigation
+  const [view, setView] = useState("consultar"); // consultar | dashboard | users | logs | creditlogs | createuser
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  // Consult flow
+  const [step, setStep] = useState("cards"); // cards | form
+  const [type, setType] = useState("semanas"); // semanas | asignacion(local "nss") | vigencia | noderecho
+  const [curp, setCurp] = useState("");
+  const [nss, setNss] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generatedFiles, setGeneratedFiles] = useState([]); // [{fileId, filename, expiresAt}]
+  const [downloadState, setDownloadState] = useState({}); // { [fileId]: "ready"|"downloading"|"success"|"error" }
+
+  // Admin data
+  const [users, setUsers] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [creditLogs, setCreditLogs] = useState([]);
+
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [loadingCreditLogs, setLoadingCreditLogs] = useState(false);
+
+  // Filters (logs)
+  const [logType, setLogType] = useState("all"); // all|semanas|asignacion|vigencia|noderecho
+  const [logRange, setLogRange] = useState("7d"); // 24h|7d|30d|all
+  const [logEmail, setLogEmail] = useState("");
+  const [applyFiltersKey, setApplyFiltersKey] = useState(0);
+
+  // Filters (credit logs)
+  const [creditEmail, setCreditEmail] = useState("");
+
+  // Users search
+  const [userSearch, setUserSearch] = useState("");
+
+  // Create user modal
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPass, setNewUserPass] = useState("");
+  const [newUserRole, setNewUserRole] = useState("user"); // user|admin (solo superadmin debería crear admins, pero UI lo permite si isSuperAdmin)
+
+  // Credits modal
+  const [creditsOpen, setCreditsOpen] = useState(false);
+  const [creditsTarget, setCreditsTarget] = useState(null); // user object
+  const [creditsAmount, setCreditsAmount] = useState(10);
+  const [creditsNote, setCreditsNote] = useState("");
+
+  // ENV sanity check (te ayuda cuando Vercel inyecta mal env)
   useEffect(() => {
     if (!BACKEND_URL || String(BACKEND_URL).includes("undefined")) {
       console.error("VITE_BACKEND_URL está mal:", BACKEND_URL);
       showToast({
         type: "error",
-        title: "Config del backend",
-        message: `VITE_BACKEND_URL inválido. Se está usando: ${BACKEND_URL}`,
+        title: "Config incorrecta",
+        message: "VITE_BACKEND_URL está vacío/undefined. Revisa variables en Vercel.",
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** -------- AUTH STATE -------- */
-  const [email, setEmail] = useState("admin@docuexpress.com");
-  const [password, setPassword] = useState("");
-  const [me, setMe] = useState(null);
-
-  const isLogged = !!me;
-  const isAdmin = me?.role === "admin" || me?.role === "superadmin";
-  const isSuper = me?.role === "superadmin" || String(me?.email || "").toLowerCase() === SUPERADMIN_EMAIL;
-
-  /** -------- NAV -------- */
-  const [view, setView] = useState("consultar"); // consultar | dashboard | users | logs | creditlogs
-  const [step, setStep] = useState("cards"); // cards | form
-
-  /** -------- CONSULT -------- */
-  const [type, setType] = useState("semanas"); // semanas | nss | vigencia | noderecho
-  const [curp, setCurp] = useState("");
-  const [nss, setNss] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [lastFiles, setLastFiles] = useState([]); // {fileId, filename, expiresAt}
-  const [downloadStatus, setDownloadStatus] = useState({}); // fileId => status
-
-  /** -------- ADMIN DATA -------- */
-  const [users, setUsers] = useState([]);
-  const [logs, setLogs] = useState([]);
-  const [creditLogs, setCreditLogs] = useState([]);
-
-  /** -------- FILTERS -------- */
-  const [logsType, setLogsType] = useState("all"); // all | semanas | nss | vigencia | noderecho
-  const [logsRange, setLogsRange] = useState("7d"); // 24h | 7d | 30d | all
-  const [logsEmail, setLogsEmail] = useState("");
-
-  const [creditEmail, setCreditEmail] = useState("");
-
-  /** -------- CREATE USER MODAL -------- */
-  const [creating, setCreating] = useState(false);
-  const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserPass, setNewUserPass] = useState("");
-  const [newUserRole, setNewUserRole] = useState("user"); // user | admin (solo super)
-  const [grantUserId, setGrantUserId] = useState(null);
-  const [grantAmount, setGrantAmount] = useState(10);
-  const [grantNote, setGrantNote] = useState("");
-
-  /** ===================== SESSION BOOTSTRAP ===================== */
+  // Load session (token)
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) return;
-
     (async () => {
       try {
-        // intenta traer créditos (y si existe endpoint /api/credits/me)
+        // mínimo: credits/me para validar token
         const res = await authFetch("/api/credits/me");
         if (res.status === 401) {
           localStorage.removeItem("token");
+          setMe(null);
           return;
         }
         const data = await safeJson(res);
-        setMe((prev) => prev || { email: "Sesión activa", role: "user", credits: data.credits ?? 0 });
+        // si tu backend no tiene endpoint /me, dejamos esto como sesión activa
+        setMe((prev) => prev || { email: "sesión activa", role: "user", credits: data.credits ?? 0 });
       } catch {
         // ignore
       }
     })();
   }, []);
 
-  /** ===================== LOGIN / LOGOUT ===================== */
+  // Login / Logout
   const onLogin = async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
@@ -400,26 +428,17 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-
       const data = await safeJson(res);
-
       if (!res.ok) {
-        showToast({
-          type: "error",
-          title: "Login fallido",
-          message: data.message || `HTTP ${res.status}`,
-        });
+        showToast({ type: "error", title: "Login fallido", message: data.message || `HTTP ${res.status}` });
         return;
       }
-
       localStorage.setItem("token", data.token);
       setMe(data.user);
-
       showToast({ type: "success", title: "Sesión iniciada", message: "Bienvenido 👋" });
-
-      // default view
       setView("consultar");
       setStep("cards");
+      setGeneratedFiles([]);
     } catch {
       showToast({ type: "error", title: "Error de red", message: "No se pudo conectar al backend." });
     }
@@ -431,85 +450,126 @@ export default function App() {
     setUsers([]);
     setLogs([]);
     setCreditLogs([]);
-    setLastFiles([]);
-    setDownloadStatus({});
-    setView("consultar");
+    setGeneratedFiles([]);
     setStep("cards");
+    setView("consultar");
     showToast({ type: "info", title: "Sesión cerrada", message: "Hasta luego." });
   };
 
-  /** ===================== LOAD ADMIN DATA ===================== */
-  const loadUsers = async () => {
-    const res = await authFetch("/api/users");
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data.message || "No se pudo cargar usuarios");
-    return Array.isArray(data.users) ? data.users : data;
-  };
+  // Refresh all
+  const refreshAll = () => setRefreshTick((x) => x + 1);
 
-  const loadLogs = async () => {
-    const res = await authFetch("/api/logs");
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data.message || "No se pudo cargar logs");
-    return Array.isArray(data) ? data : data.logs || [];
-  };
-
-  const loadCreditLogs = async () => {
-    const res = await authFetch("/api/creditlogs");
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data.message || "No se pudo cargar logs de créditos");
-    return Array.isArray(data.logs) ? data.logs : [];
-  };
-
-  const refreshAdmin = async () => {
-    if (!isLogged || !isAdmin) return;
-    try {
-      const [u, l, c] = await Promise.all([loadUsers(), loadLogs(), loadCreditLogs()]);
-      setUsers(u);
-      setLogs(l);
-      setCreditLogs(c);
-      showToast({ type: "success", title: "Actualizado", message: "Datos refrescados." });
-    } catch (e) {
-      showToast({ type: "error", title: "Error", message: e.message || "No se pudo refrescar." });
-    }
-  };
-
+  // Fetch data for admin panels
   useEffect(() => {
     if (!isLogged) return;
+
+    // refresh credits always
     (async () => {
-      // trae créditos del usuario actual
       try {
         const r = await authFetch("/api/credits/me");
+        if (r.status === 401) return;
         const d = await safeJson(r);
-        if (r.ok) setMe((m) => (m ? { ...m, credits: d.credits ?? m.credits } : m));
-      } catch {}
-    })();
-  }, [isLogged]);
-
-  useEffect(() => {
-    if (!isLogged || !isAdmin) return;
-    // carga silenciosa inicial
-    (async () => {
-      try {
-        const [u, l, c] = await Promise.all([loadUsers(), loadLogs(), loadCreditLogs()]);
-        setUsers(u);
-        setLogs(l);
-        setCreditLogs(c);
+        setMe((m) => (m ? { ...m, credits: d.credits ?? m.credits } : m));
       } catch {
         // ignore
       }
     })();
-  }, [isLogged, isAdmin]);
 
-  /** ===================== CONSULT: VALIDATION ===================== */
+    // Users (admin)
+    if (isAdmin) {
+      (async () => {
+        setLoadingUsers(true);
+        try {
+          const r = await authFetch("/api/users");
+          const d = await safeJson(r);
+          if (r.status === 401) {
+            localStorage.removeItem("token");
+            setMe(null);
+            return;
+          }
+          setUsers(d.users || []);
+        } catch {
+          // ignore
+        } finally {
+          setLoadingUsers(false);
+        }
+      })();
+
+      // Logs consultas
+      (async () => {
+        setLoadingLogs(true);
+        try {
+          const r = await authFetch("/api/logs");
+          const d = await safeJson(r);
+          if (r.status === 401) {
+            localStorage.removeItem("token");
+            setMe(null);
+            return;
+          }
+          // tu routeslogs devuelve array directamente
+          setLogs(Array.isArray(d) ? d : d.logs || []);
+        } catch {
+          // ignore
+        } finally {
+          setLoadingLogs(false);
+        }
+      })();
+
+      // Credit logs
+      (async () => {
+        setLoadingCreditLogs(true);
+        try {
+          const r = await authFetch("/api/creditlogs");
+          const d = await safeJson(r);
+          if (r.status === 401) {
+            localStorage.removeItem("token");
+            setMe(null);
+            return;
+          }
+          setCreditLogs(d.logs || []);
+        } catch {
+          // ignore
+        } finally {
+          setLoadingCreditLogs(false);
+        }
+      })();
+    } else {
+      // user normal: logs/me
+      (async () => {
+        setLoadingLogs(true);
+        try {
+          const r = await authFetch("/api/logs/me");
+          const d = await safeJson(r);
+          setLogs(Array.isArray(d) ? d : d.logs || []);
+        } catch {
+          // ignore
+        } finally {
+          setLoadingLogs(false);
+        }
+      })();
+    }
+  }, [isLogged, isAdmin, refreshTick]);
+
+  // Consult helpers
+  const typeLabel = useMemo(() => {
+    if (type === "semanas") return "Semanas cotizadas";
+    if (type === "asignacion") return "Asignación / Localización NSS";
+    if (type === "vigencia") return "Vigencia de derechos";
+    if (type === "noderecho") return "No derechohabiencia";
+    return type;
+  }, [type]);
+
   const validateConsult = () => {
     const c = curp.trim().toUpperCase();
     const n = nss.trim();
 
+    // CURP básica: 18
     if (!/^[A-Z0-9]{18}$/.test(c)) {
       showToast({ type: "error", title: "CURP inválida", message: "Debe tener 18 caracteres (letras/números)." });
       return false;
     }
 
+    // semanas/vigencia requieren NSS
     if (type === "semanas" || type === "vigencia") {
       if (!/^\d{11}$/.test(n)) {
         showToast({ type: "error", title: "NSS requerido", message: "Debe ser de 11 dígitos." });
@@ -525,16 +585,11 @@ export default function App() {
       const text = (await navigator.clipboard.readText()).trim().toUpperCase();
       const foundCurp = text.match(/[A-Z0-9]{18}/)?.[0] || "";
       const foundNss = text.match(/\b\d{11}\b/)?.[0] || "";
-
       if (foundCurp) setCurp(foundCurp);
       if (foundNss) setNss(foundNss);
 
       if (!foundCurp && !foundNss) {
-        showToast({
-          type: "info",
-          title: "Nada que pegar",
-          message: "Copia una CURP (18) o NSS (11) y vuelve a intentar.",
-        });
+        showToast({ type: "info", title: "Nada que pegar", message: "Copia una CURP (18) o NSS (11)." });
         return;
       }
 
@@ -546,20 +601,23 @@ export default function App() {
     } catch {
       showToast({
         type: "error",
-        title: "Permiso de portapapeles",
-        message: "Tu navegador bloqueó el portapapeles. Intenta con Ctrl+V manualmente.",
+        title: "Portapapeles bloqueado",
+        message: "Tu navegador bloqueó el portapapeles. Pega manualmente con Ctrl+V.",
       });
     }
   };
 
-  /** ===================== CONSULT: GENERATE ===================== */
   const onGenerate = async () => {
     if (!validateConsult()) return;
-    setGenerating(true);
-    setLastFiles([]);
 
+    setGenerating(true);
+    setGeneratedFiles([]);
     try {
-      const payload = { type, curp: curp.trim().toUpperCase(), nss: nss.trim() };
+      const payload = {
+        type,
+        curp: curp.trim().toUpperCase(),
+        nss: nss.trim(),
+      };
 
       const res = await authFetch("/api/imss", {
         method: "POST",
@@ -576,42 +634,41 @@ export default function App() {
       }
 
       if (!res.ok) {
-        // ✅ IMPORTANTE: “Inconsistencia” no debe quitar créditos (eso ya lo cuidas en backend)
+        // OJO: tú pediste que "Inconsistencia" NO quite créditos: eso es del backend.
         showToast({ type: "error", title: "Inconsistencia", message: data.message || "IMSS no devolvió PDF." });
         return;
       }
 
-      const files = Array.isArray(data.files) ? data.files : [];
-      setLastFiles(files);
+      const files = data.files || [];
+      setGeneratedFiles(files);
+      // set estado listo para cada file
+      const initial = {};
+      for (const f of files) initial[f.fileId] = "ready";
+      setDownloadState(initial);
 
-      // reset estados de descarga
-      const init = {};
-      for (const f of files) init[f.fileId] = "idle";
-      setDownloadStatus(init);
+      showToast({ type: "success", title: "Documento(s) generado(s)", message: `Se generaron ${files.length} PDF(s).` });
 
-      showToast({
-        type: "success",
-        title: "Documento(s) generado(s)",
-        message: `Listo. Se generaron ${files.length} PDF(s).`,
-      });
-
-      // refrescar créditos
+      // refresh credits
       try {
         const r2 = await authFetch("/api/credits/me");
         const d2 = await safeJson(r2);
-        if (r2.ok) setMe((m) => (m ? { ...m, credits: d2.credits ?? m.credits } : m));
-      } catch {}
+        setMe((m) => (m ? { ...m, credits: d2.credits ?? m.credits } : m));
+      } catch {
+        // ignore
+      }
+
+      // refresh dashboard counters/logs if admin
+      refreshAll();
     } catch {
-      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar al backend." });
+      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar al backend (Render)." });
     } finally {
       setGenerating(false);
     }
   };
 
-  /** ===================== DOWNLOAD WITH STATUS ===================== */
   const downloadFile = async (fileId, filename) => {
+    setDownloadState((s) => ({ ...s, [fileId]: "downloading" }));
     try {
-      setDownloadStatus((s) => ({ ...s, [fileId]: "downloading" }));
       const res = await fetch(`${BACKEND_URL}/api/download/${fileId}`, {
         headers: {
           ...(localStorage.getItem("token") ? { Authorization: `Bearer ${localStorage.getItem("token")}` } : {}),
@@ -622,326 +679,364 @@ export default function App() {
         localStorage.removeItem("token");
         setMe(null);
         showToast({ type: "info", title: "Sesión expirada", message: "Vuelve a iniciar sesión." });
-        setDownloadStatus((s) => ({ ...s, [fileId]: "error" }));
+        setDownloadState((s) => ({ ...s, [fileId]: "error" }));
         return;
       }
 
       if (!res.ok) {
-        const d = await safeJson(res);
-        showToast({ type: "error", title: "No se pudo descargar", message: d.message || `HTTP ${res.status}` });
-        setDownloadStatus((s) => ({ ...s, [fileId]: "error" }));
+        const data = await safeJson(res);
+        showToast({ type: "error", title: "No se pudo descargar", message: data.message || `HTTP ${res.status}` });
+        setDownloadState((s) => ({ ...s, [fileId]: "error" }));
         return;
       }
 
       const blob = await res.blob();
-      downloadBlob(blob, filename || "documento.pdf");
-      setDownloadStatus((s) => ({ ...s, [fileId]: "done" }));
-      showToast({ type: "success", title: "Descarga iniciada", message: filename || "PDF" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "documento.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      setDownloadState((s) => ({ ...s, [fileId]: "success" }));
+      setTimeout(() => setDownloadState((s) => ({ ...s, [fileId]: "ready" })), 1600);
     } catch {
-      setDownloadStatus((s) => ({ ...s, [fileId]: "error" }));
       showToast({ type: "error", title: "Error de red", message: "No se pudo descargar el archivo." });
+      setDownloadState((s) => ({ ...s, [fileId]: "error" }));
     }
   };
 
-  /** ===================== USERS: ACTIONS ===================== */
+  // Admin actions
   const resetPassword = async (userId) => {
     try {
       const res = await authFetch(`/api/users/${userId}/reset-password`, { method: "POST" });
       const data = await safeJson(res);
       if (!res.ok) {
-        showToast({ type: "error", title: "Error", message: data.message || "No se pudo resetear." });
+        showToast({ type: "error", title: "No se pudo resetear", message: data.message || `HTTP ${res.status}` });
         return;
       }
-      showToast({ type: "success", title: "Password reseteado", message: `Nueva: ${data.newPassword}` });
+      showToast({
+        type: "success",
+        title: "Password reseteado",
+        message: `Nueva contraseña: ${data.newPassword}`,
+      });
     } catch {
-      showToast({ type: "error", title: "Error", message: "No se pudo resetear." });
+      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar." });
     }
   };
 
-  const openGrant = (userId) => {
-    setGrantUserId(userId);
-    setGrantAmount(10);
-    setGrantNote("");
-    showToast({ type: "info", title: "Créditos", message: "Configura cantidad y guarda." });
-  };
-
-  const grantCredits = async () => {
-    if (!grantUserId) return;
-    const amount = Number(grantAmount);
-    if (!Number.isInteger(amount)) {
-      showToast({ type: "error", title: "Cantidad inválida", message: "Debe ser un entero (ej: 10, -10)." });
-      return;
-    }
-
+  const toggleDisabled = async (u) => {
     try {
-      const res = await authFetch("/api/credits/grant", {
-        method: "POST",
-        body: JSON.stringify({ userId: grantUserId, amount, note: grantNote }),
+      const res = await authFetch(`/api/users/${u.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ disabled: !u.disabled }),
       });
       const data = await safeJson(res);
       if (!res.ok) {
-        showToast({ type: "error", title: "Error", message: data.message || "No se pudo actualizar." });
+        showToast({ type: "error", title: "Error", message: data.message || `HTTP ${res.status}` });
         return;
       }
-
-      showToast({ type: "success", title: "Créditos actualizados", message: data.user?.email || "Listo" });
-      setGrantUserId(null);
-
-      // refresh lists
-      if (isAdmin) {
-        const [u, c] = await Promise.all([loadUsers(), loadCreditLogs()]);
-        setUsers(u);
-        setCreditLogs(c);
-      }
+      showToast({ type: "success", title: "Actualizado", message: `${u.email} ${!u.disabled ? "deshabilitado" : "habilitado"}.` });
+      refreshAll();
     } catch {
-      showToast({ type: "error", title: "Error", message: "No se pudo actualizar créditos." });
+      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar." });
+    }
+  };
+
+  const openCreditsModal = (u) => {
+    setCreditsTarget(u);
+    setCreditsAmount(10);
+    setCreditsNote("");
+    setCreditsOpen(true);
+  };
+
+  const grantCredits = async () => {
+    if (!creditsTarget) return;
+    const amount = Number(creditsAmount);
+    if (!Number.isInteger(amount)) {
+      showToast({ type: "error", title: "Amount inválido", message: "Debe ser entero (ej. 10 o -10)." });
+      return;
+    }
+    try {
+      const res = await authFetch(`/api/credits/grant`, {
+        method: "POST",
+        body: JSON.stringify({
+          userId: creditsTarget.id,
+          amount,
+          note: creditsNote,
+        }),
+      });
+      const data = await safeJson(res);
+      if (!res.ok) {
+        showToast({ type: "error", title: "Error", message: data.message || `HTTP ${res.status}` });
+        return;
+      }
+      showToast({ type: "success", title: "Créditos actualizados", message: `${creditsTarget.email} (${data.user?.credits ?? "OK"})` });
+      setCreditsOpen(false);
+      refreshAll();
+    } catch {
+      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar." });
     }
   };
 
   const createUser = async () => {
-    const e = String(newUserEmail || "").trim().toLowerCase();
-    const p = String(newUserPass || "").trim();
-    if (e.length < 5) {
+    const em = newUserEmail.trim();
+    if (em.length < 5) {
       showToast({ type: "error", title: "Email inválido", message: "Escribe un email válido." });
       return;
     }
-    if (p.length < 6) {
+    if (newUserPass.trim().length < 6) {
       showToast({ type: "error", title: "Password inválida", message: "Mínimo 6 caracteres." });
       return;
     }
 
+    // Solo superadmin debería poder crear admins (UI)
+    const role = isSuperAdmin ? newUserRole : "user";
+
     try {
-      const res = await authFetch("/api/users", {
+      const res = await authFetch(`/api/users`, {
         method: "POST",
-        body: JSON.stringify({ email: e, password: p, role: newUserRole }),
+        body: JSON.stringify({ email: em, password: newUserPass, role }),
       });
       const data = await safeJson(res);
       if (!res.ok) {
-        showToast({ type: "error", title: "Error", message: data.message || "No se pudo crear." });
+        showToast({ type: "error", title: "No se pudo crear", message: data.message || `HTTP ${res.status}` });
         return;
       }
-
-      showToast({ type: "success", title: "Usuario creado", message: data.user?.email || e });
-      setCreating(false);
+      showToast({ type: "success", title: "Usuario creado", message: `${data.user?.email || em}` });
+      setCreateOpen(false);
       setNewUserEmail("");
       setNewUserPass("");
       setNewUserRole("user");
-
-      const u = await loadUsers();
-      setUsers(u);
+      refreshAll();
     } catch {
-      showToast({ type: "error", title: "Error", message: "No se pudo crear." });
+      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar." });
     }
   };
 
-  /** ===================== DERIVED DATA: DASHBOARD ===================== */
-  const logs24 = useMemo(() => logs.filter((x) => withinRange(x.createdAt, "24h")), [logs]);
+  // ===================== derived views =====================
+  const usersFiltered = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    if (!q) return users;
+    return (users || []).filter((u) => String(u.email || "").toLowerCase().includes(q));
+  }, [users, userSearch]);
 
-  const topTypes24 = useMemo(() => {
-    const map = new Map();
-    for (const l of logs24) {
-      const k = l.type || "otro";
-      map.set(k, (map.get(k) || 0) + 1);
-    }
-    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
-  }, [logs24]);
+  const logsFiltered = useMemo(() => {
+    // se aplica cuando cambias applyFiltersKey (botón)
+    // Para no recalcular cada tecla si no quieres, pero igual es light.
+    const t = logType;
+    const r = logRange;
+    const em = logEmail.trim().toLowerCase();
 
-  const totalCredits = useMemo(() => {
-    // suma créditos visibles (admin scope)
-    return (users || []).reduce((acc, u) => acc + (Number(u.credits) || 0), 0);
-  }, [users]);
-
-  /** ===================== FILTERED LOGS ===================== */
-  const filteredLogs = useMemo(() => {
-    const q = String(logsEmail || "").trim().toLowerCase();
     return (logs || [])
-      .filter((l) => (logsType === "all" ? true : (l.type || "") === logsType))
-      .filter((l) => withinRange(l.createdAt, logsRange))
-      .filter((l) => (q ? String(l.email || "").toLowerCase().includes(q) : true))
+      .filter((l) => {
+        if (t !== "all" && String(l.type) !== t) return false;
+        if (!withinRange(l.createdAt, r)) return false;
+        if (em && !String(l.email || "").toLowerCase().includes(em)) return false;
+        return true;
+      })
       .slice()
-      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-  }, [logs, logsType, logsRange, logsEmail]);
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyFiltersKey, logs]);
 
-  const filteredCreditLogs = useMemo(() => {
-    const q = String(creditEmail || "").trim().toLowerCase();
-    return (creditLogs || [])
-      .filter((x) => (q ? String(x.userEmail || "").toLowerCase().includes(q) : true))
-      .slice()
-      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  const creditLogsFiltered = useMemo(() => {
+    const em = creditEmail.trim().toLowerCase();
+    const list = (creditLogs || []).slice();
+    if (!em) return list;
+    return list.filter((x) => String(x.userEmail || "").toLowerCase().includes(em) || String(x.adminEmail || "").toLowerCase().includes(em));
   }, [creditLogs, creditEmail]);
 
-  /** ===================== UI STYLES ===================== */
-  const PageShell = ({ children }) => (
-    <div
-      style={{
-        fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial",
-        background: "#f6f7fb",
-        minHeight: "100vh",
-      }}
-    >
-      {children}
+  const dashboard = useMemo(() => {
+    const totalUsers = (users || []).length;
+    const totalCredits = sumCredits(users || []);
+    const consultas24h = (logs || []).filter((l) => withinRange(l.createdAt, "24h")).length;
+
+    const top = {};
+    for (const l of (logs || []).filter((x) => withinRange(x.createdAt, "24h"))) {
+      const k = String(l.type || "unknown");
+      top[k] = (top[k] || 0) + 1;
+    }
+    const topList = Object.entries(top).sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+    return { totalUsers, totalCredits, consultas24h, topList };
+  }, [users, logs]);
+
+  // ===================== UI sections =====================
+  const Header = ({ title, desc, right }) => (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>DocuExpress</div>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 14 }}>
+        <div>
+          <h1 style={styles.h1}>{title}</h1>
+          {desc ? <div style={styles.subtitle}>{desc}</div> : null}
+        </div>
+        {right}
+      </div>
+    </div>
+  );
+
+  const SidebarSession = () => (
+    <div style={{ padding: 14, border: "1px solid #eef2ff", background: "#f8fafc", borderRadius: 18 }}>
+      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6, fontWeight: 900 }}>Sesión</div>
+      <div style={{ fontWeight: 950 }}>{me.email}</div>
+
+      <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={styles.pill(me.role === "admin" ? "indigo" : "cyan")}>{me.role === "admin" ? "Admin" : "User"}</span>
+        {isSuperAdmin ? <span style={styles.pill("purple")}>Super Admin</span> : null}
+        <span style={styles.pill("cyan")}>{me.credits ?? 0} créditos</span>
+      </div>
+
+      <button onClick={onLogout} style={{ ...styles.btn("ghost"), width: "100%", marginTop: 12 }}>
+        Cerrar sesión
+      </button>
+    </div>
+  );
+
+  const SidebarLogin = () => (
+    <div style={{ padding: 14, border: "1px solid #e5e7eb", background: "#fff", borderRadius: 18 }}>
+      <div style={{ fontWeight: 950, marginBottom: 10 }}>Iniciar sesión</div>
+
+      <div style={{ marginBottom: 10 }}>
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email"
+          style={styles.input}
+          autoComplete="username"
+        />
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <input
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Contraseña"
+          type="password"
+          style={styles.input}
+          autoComplete="current-password"
+        />
+      </div>
+
+      <button onClick={onLogin} style={{ ...styles.btn("primary"), width: "100%" }}>
+        Iniciar sesión
+      </button>
+
+      <div style={{ marginTop: 12, fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
+        <b>Demo:</b>
+        <div>Admin: admin@docuexpress.com / Admin123!</div>
+        <div>Cliente: cliente@docuexpress.com / Cliente123!</div>
+      </div>
     </div>
   );
 
   const Sidebar = () => (
-    <aside style={{ padding: 18, borderRight: "1px solid #e5e7eb", background: "#fff" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-        <div style={{ fontSize: 22, fontWeight: 950 }}>
+    <aside style={styles.aside}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={styles.brand}>
           Docu<span style={{ color: "#4f46e5" }}>Express</span>
         </div>
-        <Pill tone="gray">SaaS</Pill>
+        <span style={styles.badgeSaas}>SaaS</span>
       </div>
 
-      {!isLogged ? (
-        <div style={{ marginTop: 14, padding: 14, border: "1px solid #e5e7eb", borderRadius: 16 }}>
-          <div style={{ fontWeight: 950, marginBottom: 10 }}>Iniciar sesión</div>
-
-          <div style={{ display: "grid", gap: 10 }}>
-            <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
-            <Input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Contraseña"
-              type="password"
-            />
-
-            <PrimaryButton onClick={onLogin}>Iniciar sesión</PrimaryButton>
-          </div>
-
-          <div style={{ marginTop: 12, fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
-            <b>Demo</b>:
-            <div>Admin: admin@docuexpress.com / Admin123!</div>
-            <div>Cliente: cliente@docuexpress.com / Cliente123!</div>
-          </div>
-        </div>
-      ) : (
-        <div style={{ marginTop: 14, padding: 14, border: "1px solid #eef2ff", background: "#f8fafc", borderRadius: 16 }}>
-          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>Sesión</div>
-          <div style={{ fontWeight: 950 }}>{me.email}</div>
-
-          <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <Pill tone="indigo">{isSuper ? "Super Admin" : me.role === "admin" ? "Admin" : "User"}</Pill>
-            <Pill tone="cyan">{me.credits ?? 0} créditos</Pill>
-          </div>
-
-          <div style={{ marginTop: 12 }}>
-            <SoftButton onClick={onLogout} style={{ width: "100%" }}>
-              Cerrar sesión
-            </SoftButton>
-          </div>
-        </div>
-      )}
-
-      <div style={{ marginTop: 16, fontSize: 12, color: "#6b7280" }}>
-        Backend: <b style={{ color: "#111827" }}>{BACKEND_URL}</b>
-      </div>
+      {isLogged ? <SidebarSession /> : <SidebarLogin />}
 
       <div style={{ marginTop: 18 }}>
-        <div style={{ fontSize: 12, fontWeight: 900, color: "#6b7280", marginBottom: 8 }}>Menú</div>
+        <div style={styles.sectionTitle}>Menú</div>
 
-        <div style={{ display: "grid", gap: 10 }}>
-          <MenuButton label="CONSULTAR" icon="🔎" active={view === "consultar"} onClick={() => setView("consultar")} />
+        <button style={styles.navBtn(view === "consultar")} onClick={() => setView("consultar")}>
+          🔎 <span>CONSULTAR</span>
+        </button>
 
-          {isAdmin ? (
-            <>
-              <MenuButton label="Dashboard" icon="📊" active={view === "dashboard"} onClick={() => setView("dashboard")} />
-              <MenuButton label="Usuarios" icon="👤" active={view === "users"} onClick={() => setView("users")} />
-              <MenuButton label="Logs de consultas" icon="🧾" active={view === "logs"} onClick={() => setView("logs")} />
-              <MenuButton label="Logs de créditos" icon="💳" active={view === "creditlogs"} onClick={() => setView("creditlogs")} />
+        {isLogged && isAdmin ? (
+          <>
+            <button style={styles.navBtn(view === "dashboard")} onClick={() => setView("dashboard")}>
+              📊 <span>Dashboard</span>
+            </button>
+            <button style={styles.navBtn(view === "users")} onClick={() => setView("users")}>
+              👤 <span>Usuarios</span>
+            </button>
+            <button style={styles.navBtn(view === "logs")} onClick={() => setView("logs")}>
+              🧾 <span>Logs de consultas</span>
+            </button>
+            <button style={styles.navBtn(view === "creditlogs")} onClick={() => setView("creditlogs")}>
+              💳 <span>Logs de créditos</span>
+            </button>
 
-              <SoftButton
-                onClick={() => {
-                  setCreating(true);
-                  setNewUserRole("user");
-                }}
-                style={{ width: "100%", marginTop: 8 }}
-              >
-                ➕ Crear usuario
-              </SoftButton>
+            <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+              <button style={styles.navBtn(false)} onClick={() => setCreateOpen(true)}>
+                ➕ <span>Crear usuario</span>
+              </button>
 
-              <SoftButton onClick={refreshAdmin} style={{ width: "100%" }}>
-                🔄 Actualizar
-              </SoftButton>
-            </>
-          ) : null}
+              <button style={{ ...styles.navBtn(false), justifyContent: "center" }} onClick={refreshAll}>
+                🔄 <span>Actualizar</span>
+              </button>
+            </div>
+          </>
+        ) : null}
+
+        <div style={{ marginTop: 14, fontSize: 12, color: "#64748b" }}>
+          Backend: <b>{BACKEND_URL}</b>
         </div>
       </div>
     </aside>
   );
 
-  const MenuButton = ({ label, icon, active, onClick }) => (
-    <button
-      onClick={onClick}
-      style={{
-        textAlign: "left",
-        padding: "12px 14px",
-        borderRadius: 14,
-        border: "1px solid #e5e7eb",
-        background: active ? "#4f46e5" : "#fff",
-        color: active ? "#fff" : "#111827",
-        fontWeight: 950,
-        cursor: "pointer",
-        display: "flex",
-        gap: 10,
-        alignItems: "center",
-      }}
-    >
-      <span>{icon}</span>
-      <span>{label}</span>
-    </button>
-  );
+  // ===================== views =====================
+  const ConsultView = () => (
+    <>
+      <Header
+        title="Consultar"
+        desc="Genera documentos del IMSS. Los PDFs se guardan por 24 horas y se descargan desde tu panel."
+        right={<span style={styles.pill("gray")}>PDFs duran 24h</span>}
+      />
 
-  /** ===================== VIEWS ===================== */
-  const Header = ({ title, subtitle, right }) => (
-    <div style={{ marginBottom: 18, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-      <div>
-        <div style={{ fontSize: 12, color: "#6b7280" }}>DocuExpress</div>
-        <div style={{ fontSize: 32, fontWeight: 980, letterSpacing: -0.6 }}>{title}</div>
-        {subtitle ? <div style={{ color: "#6b7280", marginTop: 6 }}>{subtitle}</div> : null}
-      </div>
-      {right || null}
-    </div>
-  );
+      <div style={styles.card}>
+        <div style={styles.cardHeader}>
+          <div>
+            <div style={{ fontWeight: 950, letterSpacing: -0.3, fontSize: 18 }}>CONSULTAR</div>
+            <div style={{ color: "#64748b", fontSize: 13 }}>Elige el trámite, captura datos y genera el PDF.</div>
+          </div>
+          <span style={styles.pill("gray")}>PDFs duran 24h</span>
+        </div>
 
-  const ConsultView = () => {
-    const tramites = [
-      { key: "semanas", title: "Semanas cotizadas", desc: "Constancia de semanas cotizadas en el IMSS.", badge: "CURP + NSS" },
-      { key: "nss", title: "Asignación / Localización NSS", desc: "Genera documentos de NSS (puede devolver 2 PDFs).", badge: "Solo CURP • 2 PDFs" },
-      { key: "vigencia", title: "Vigencia de derechos", desc: "Constancia de vigencia de derechos.", badge: "CURP + NSS" },
-      { key: "noderecho", title: "No derechohabiencia", desc: "Constancia de no derecho al servicio médico.", badge: "Solo CURP (según proveedor)" },
-    ];
-
-    const typeLabel =
-      type === "semanas"
-        ? "Semanas cotizadas"
-        : type === "nss"
-        ? "Asignación / Localización NSS"
-        : type === "vigencia"
-        ? "Vigencia de derechos"
-        : "No derechohabiencia";
-
-    return (
-      <>
-        <Header
-          title="Consultar"
-          subtitle="Genera documentos del IMSS. Los PDFs se guardan por 24 horas y se descargan desde tu panel."
-          right={<Pill tone="gray">PDFs duran 24h</Pill>}
-        />
-
-        <Card
-          title="CONSULTAR"
-          subtitle="Elige el trámite, captura datos y genera el PDF."
-          right={<Pill tone="gray">PDFs duran 24h</Pill>}
-        >
+        <div style={styles.cardBody}>
           {step === "cards" ? (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              {tramites.map((c) => (
+              {[
+                {
+                  key: "semanas",
+                  title: "Semanas cotizadas",
+                  desc: "Constancia de semanas cotizadas en el IMSS.",
+                  badge: "CURP + NSS",
+                },
+                {
+                  key: "asignacion",
+                  title: "Asignación / Localización NSS",
+                  desc: "Genera documentos de NSS (puede devolver 2 PDFs).",
+                  badge: "Solo CURP • 2 PDFs",
+                },
+                {
+                  key: "vigencia",
+                  title: "Vigencia de derechos",
+                  desc: "Constancia de vigencia de derechos.",
+                  badge: "CURP + NSS",
+                },
+                {
+                  key: "noderecho",
+                  title: "No derechohabiencia",
+                  desc: "Constancia de no derecho al servicio médico.",
+                  badge: "Solo CURP (según proveedor)",
+                },
+              ].map((c) => (
                 <button
                   key={c.key}
                   onClick={() => {
                     setType(c.key);
                     setStep("form");
-                    setLastFiles([]);
+                    setGeneratedFiles([]);
                   }}
                   style={{
                     textAlign: "left",
@@ -954,9 +1049,9 @@ export default function App() {
                   }}
                 >
                   <div style={{ fontWeight: 950, fontSize: 16, marginBottom: 6 }}>{c.title}</div>
-                  <div style={{ color: "#6b7280", fontSize: 13, lineHeight: 1.4 }}>{c.desc}</div>
+                  <div style={{ color: "#64748b", fontSize: 13, lineHeight: 1.4 }}>{c.desc}</div>
                   <div style={{ marginTop: 12 }}>
-                    <Pill tone="gray">{c.badge}</Pill>
+                    <span style={styles.pill("gray")}>{c.badge}</span>
                   </div>
                 </button>
               ))}
@@ -964,523 +1059,525 @@ export default function App() {
           ) : (
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                <div style={{ color: "#6b7280", fontSize: 13 }}>
-                  Trámite: <b style={{ color: "#111827" }}>{typeLabel}</b>
+                <div style={{ color: "#64748b", fontSize: 13 }}>
+                  Trámite: <b style={{ color: "#0f172a" }}>{typeLabel}</b>
                 </div>
-                <SoftButton onClick={() => setStep("cards")}>← Atrás</SoftButton>
+                <button onClick={() => setStep("cards")} style={styles.btn("ghost")}>
+                  ← Atrás
+                </button>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 950, marginBottom: 6 }}>CURP</div>
-                  <Input
+                  <div style={styles.label}>CURP</div>
+                  <input
                     value={curp}
                     onChange={(e) => setCurp(e.target.value.toUpperCase())}
                     placeholder="Ej. MAGC790705HTLRNR03"
+                    style={styles.input}
                   />
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 950, marginBottom: 6 }}>
-                    NSS {(type === "semanas" || type === "vigencia") ? "(obligatorio)" : "(opcional)"}
+                  <div style={styles.label}>
+                    NSS {type === "semanas" || type === "vigencia" ? "(obligatorio)" : "(opcional)"}
                   </div>
-                  <Input
+                  <input
                     value={nss}
                     onChange={(e) => setNss(e.target.value)}
-                    placeholder={(type === "semanas" || type === "vigencia") ? "11 dígitos" : "Opcional"}
+                    placeholder={type === "semanas" || type === "vigencia" ? "11 dígitos" : "Opcional"}
+                    style={styles.input}
                   />
                 </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <SoftButton onClick={pasteCurpNss} style={{ width: "100%" }}>
+                <button onClick={pasteCurpNss} style={styles.btn("ghost")}>
                   📋 Pegar CURP/NSS
-                </SoftButton>
+                </button>
 
-                <PrimaryButton onClick={onGenerate} disabled={!isLogged || generating}>
+                <button onClick={onGenerate} disabled={!isLogged || generating} style={styles.btn(generating ? "ghost" : "primary")}>
                   {generating ? "Generando…" : "Generar documento"}
-                </PrimaryButton>
+                </button>
               </div>
 
-              <div style={{ marginTop: 14, borderTop: "1px solid #f1f5f9", paddingTop: 14 }}>
-                {lastFiles.length === 0 ? (
-                  <div style={{ color: "#6b7280", fontSize: 13 }}>
+              <div style={{ marginTop: 16, borderTop: "1px solid #eef2f7", paddingTop: 14 }}>
+                {generatedFiles.length === 0 ? (
+                  <div style={{ color: "#64748b", fontSize: 13 }}>
                     Aquí aparecerán los PDFs para descargar cuando generes un documento.
                   </div>
                 ) : (
                   <div style={{ display: "grid", gap: 10 }}>
-                    {lastFiles.map((f) => (
-                      <PdfDownloadButton
+                    {generatedFiles.map((f) => (
+                      <div
                         key={f.fileId}
-                        label={f.filename || "documento.pdf"}
-                        status={downloadStatus[f.fileId] || "idle"}
-                        onClick={() => downloadFile(f.fileId, f.filename)}
-                      />
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 12,
+                          padding: 12,
+                          borderRadius: 16,
+                          border: "1px solid #e5e7eb",
+                          background: "#f8fafc",
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {f.filename || "documento.pdf"}
+                          </div>
+                          <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
+                            {f.expiresAt ? `Expira: ${formatDate(f.expiresAt)}` : "* Si ya pasó 24h, el backend pudo haberlo borrado."}
+                          </div>
+                        </div>
+
+                        <PdfButton
+                          state={downloadState[f.fileId] || "ready"}
+                          onClick={() => downloadFile(f.fileId, f.filename)}
+                        />
+                      </div>
                     ))}
-                    <div style={{ fontSize: 12, color: "#6b7280" }}>
-                      * Si ya pasó 24h, el backend puede haberlo borrado.
-                    </div>
                   </div>
                 )}
               </div>
             </div>
           )}
-        </Card>
-      </>
-    );
-  };
-
-  const DashboardView = () => (
-    <>
-      <Header title="Dashboard" subtitle="Resumen rápido de tu operación." />
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 14 }}>
-        <MiniStat title="Usuarios" value={`${users.length}`} icon="👥" />
-        <MiniStat title="Créditos totales" value={`${totalCredits}`} icon="💳" />
-        <MiniStat title="Consultas 24h" value={`${logs24.length}`} icon="🧾" />
-        <MiniStat title="Rol" value={isSuper ? "Super Admin" : me.role === "admin" ? "Admin" : "User"} icon="🛡️" />
+        </div>
       </div>
-
-      <Card
-        title="Top trámites (24h)"
-        subtitle="Los trámites más utilizados en las últimas 24 horas."
-        right={<SoftButton onClick={refreshAdmin}>↻ Actualizar</SoftButton>}
-      >
-        {topTypes24.length === 0 ? (
-          <div style={{ color: "#6b7280" }}>Sin datos aún (haz algunas consultas).</div>
-        ) : (
-          <div style={{ display: "grid", gap: 10 }}>
-            {topTypes24.slice(0, 8).map(([k, v]) => (
-              <div
-                key={k}
-                style={{
-                  padding: 12,
-                  borderRadius: 14,
-                  border: "1px solid #e5e7eb",
-                  background: "#f8fafc",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div style={{ fontWeight: 950 }}>{k}</div>
-                <Pill tone="indigo">{v}</Pill>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
     </>
   );
 
-  const MiniStat = ({ title, value, icon }) => (
-    <div
-      style={{
-        background: "#fff",
-        borderRadius: 16,
-        border: "1px solid #e5e7eb",
-        boxShadow: "0 18px 40px rgba(0,0,0,.06)",
-        padding: 14,
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        gap: 10,
-      }}
-    >
-      <div>
-        <div style={{ color: "#6b7280", fontSize: 12, fontWeight: 900 }}>{title}</div>
-        <div style={{ fontSize: 24, fontWeight: 980, letterSpacing: -0.4 }}>{value}</div>
+  const DashboardView = () => (
+    <>
+      <Header title="Dashboard" desc="Resumen rápido de tu operación." right={<button style={styles.btn("ghost")} onClick={refreshAll}>↻ Actualizar</button>} />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+        <StatCard title="Usuarios" value={loadingUsers ? "—" : String(dashboard.totalUsers)} icon="👥" />
+        <StatCard title="Créditos totales" value={loadingUsers ? "—" : String(dashboard.totalCredits)} icon="💳" />
+        <StatCard title="Consultas 24h" value={loadingLogs ? "—" : String(dashboard.consultas24h)} icon="🧾" />
+        <StatCard title="Rol" value={isSuperAdmin ? "Super Admin" : "Admin"} icon="🛡️" />
       </div>
-      <div style={{ fontSize: 18 }}>{icon}</div>
-    </div>
+
+      <div style={{ ...styles.card, marginTop: 16 }}>
+        <div style={styles.cardHeader}>
+          <div>
+            <div style={{ fontWeight: 950 }}>Top trámites (24h)</div>
+            <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>Los trámites más utilizados en las últimas 24 horas.</div>
+          </div>
+          <button style={styles.btn("ghost")} onClick={refreshAll}>↻ Actualizar</button>
+        </div>
+        <div style={styles.cardBody}>
+          {dashboard.topList.length === 0 ? (
+            <div style={{ color: "#64748b" }}>Sin datos aún (haz algunas consultas).</div>
+          ) : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {dashboard.topList.map(([k, v]) => (
+                <div key={k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", background: "#fff" }}>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <span style={styles.pill("gray")}>{k}</span>
+                    <span style={{ color: "#64748b", fontSize: 13 }}>Solicitudes</span>
+                  </div>
+                  <div style={{ fontWeight: 950 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 
-  const UsersView = () => {
-    const [q, setQ] = useState("");
-    const list = useMemo(() => {
-      const qq = String(q).trim().toLowerCase();
-      return (users || [])
-        .filter((u) => (qq ? String(u.email || "").toLowerCase().includes(qq) : true))
-        .slice()
-        .sort((a, b) => String(a.email || "").localeCompare(String(b.email || "")));
-    }, [q, users]);
+  const UsersView = () => (
+    <>
+      <Header title="Usuarios" desc="Como admin solo ves tus usuarios." />
 
-    return (
-      <>
-        <Header title="Usuarios" subtitle={isSuper ? "Como super admin ves todos los admins y sus usuarios." : "Como admin solo ves tus usuarios."} />
-
-        <Card
-          title="Usuarios"
-          subtitle="Gestiona usuarios, resetea password y asigna créditos."
-          right={
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <div style={{ width: 220 }}>
-                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar email..." />
-              </div>
-              <SoftButton onClick={refreshAdmin} title="Actualizar">↻</SoftButton>
-              <SoftButton
-                onClick={() => {
-                  setCreating(true);
-                  setNewUserRole("user");
-                }}
-                style={{ background: "#4f46e5", color: "#fff", border: "none" }}
-              >
-                ➕ Crear
-              </SoftButton>
+      <div style={styles.card}>
+        <div style={styles.cardHeader}>
+          <div>
+            <div style={{ fontWeight: 950 }}>Usuarios</div>
+            <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>
+              Gestiona usuarios, deshabilita, resetea password y asigna créditos.
             </div>
-          }
-        >
-          <div style={{ display: "grid", gap: 10 }}>
-            {list.map((u) => {
-              const active = !u.disabled;
-              const roleTone = u.role === "admin" ? "indigo" : "cyan";
-              return (
+          </div>
+
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              placeholder="Buscar email..."
+              style={{ ...styles.input, width: 220 }}
+            />
+            <button style={styles.btn("ghost")} onClick={refreshAll} title="Refrescar">↻</button>
+            <button style={styles.btn("primary")} onClick={() => setCreateOpen(true)}>
+              ➕ Crear
+            </button>
+          </div>
+        </div>
+
+        <div style={styles.cardBody}>
+          {loadingUsers ? (
+            <div style={{ color: "#64748b" }}>Cargando usuarios…</div>
+          ) : usersFiltered.length === 0 ? (
+            <div style={{ color: "#64748b" }}>No hay usuarios.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {usersFiltered.map((u) => (
                 <div
                   key={u.id}
                   style={{
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 16,
                     padding: 14,
+                    borderRadius: 18,
+                    border: "1px solid #e5e7eb",
                     background: "#fff",
                     display: "flex",
-                    justifyContent: "space-between",
                     alignItems: "center",
-                    gap: 10,
+                    justifyContent: "space-between",
+                    gap: 14,
                   }}
                 >
-                  <div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <div style={{ fontWeight: 980 }}>{u.email}</div>
-                      <Pill tone={roleTone}>{u.role}</Pill>
-                      <Pill tone={active ? "green" : "red"}>{active ? "Activo" : "Deshabilitado"}</Pill>
-                      {isSuper && u.ownerAdminId ? <Pill tone="gray">owner: {u.ownerAdminId.slice(0, 6)}…</Pill> : null}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {u.email}
                     </div>
-                    <div style={{ marginTop: 6, color: "#6b7280", fontSize: 13 }}>
-                      Créditos: <b style={{ color: "#111827" }}>{u.credits ?? 0}</b>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+                      <span style={styles.pill(u.role === "admin" ? "indigo" : "cyan")}>{u.role}</span>
+                      <span style={styles.pill(u.disabled ? "red" : "green")}>{u.disabled ? "Inactivo" : "Activo"}</span>
+                      <span style={styles.pill("gray")}>Créditos: {u.credits ?? 0}</span>
                     </div>
                   </div>
 
                   <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <SoftButton onClick={() => openGrant(u.id)}>💳 Créditos</SoftButton>
-                    <SoftButton onClick={() => resetPassword(u.id)}>🔑 Reset</SoftButton>
+                    <button style={styles.btn("ghost")} onClick={() => openCreditsModal(u)}>💳 Créditos</button>
+                    <button style={styles.btn("ghost")} onClick={() => resetPassword(u.id)}>🔑 Reset</button>
+                    <button style={styles.btn(u.disabled ? "soft" : "ghost")} onClick={() => toggleDisabled(u)}>
+                      ⛔ {u.disabled ? "Habilitar" : "Deshabilitar"}
+                    </button>
+
+                    {/* Si quieres cambiar rol solo para superadmin (UI) */}
+                    {isSuperAdmin ? (
+                      <button
+                        style={styles.btn("ghost")}
+                        onClick={async () => {
+                          const nextRole = u.role === "admin" ? "user" : "admin";
+                          try {
+                            const res = await authFetch(`/api/users/${u.id}`, { method: "PATCH", body: JSON.stringify({ role: nextRole }) });
+                            const data = await safeJson(res);
+                            if (!res.ok) {
+                              showToast({ type: "error", title: "Error", message: data.message || `HTTP ${res.status}` });
+                              return;
+                            }
+                            showToast({ type: "success", title: "Rol actualizado", message: `${u.email} → ${nextRole}` });
+                            refreshAll();
+                          } catch {
+                            showToast({ type: "error", title: "Error de red", message: "No se pudo conectar." });
+                          }
+                        }}
+                      >
+                        🛡️ Rol
+                      </button>
+                    ) : null}
                   </div>
                 </div>
-              );
-            })}
-
-            {list.length === 0 ? <div style={{ color: "#6b7280" }}>Sin usuarios.</div> : null}
-          </div>
-        </Card>
-
-        {/* GRANT MODAL */}
-        {grantUserId ? (
-          <div style={modalBackdrop}>
-            <div style={modalCard}>
-              <div style={{ fontWeight: 980, fontSize: 18 }}>Asignar créditos</div>
-              <div style={{ color: "#6b7280", marginTop: 6, fontSize: 13 }}>
-                Entero positivo o negativo. Ej: <b>10</b> / <b>-10</b>
-              </div>
-
-              <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
-                <Input
-                  value={String(grantAmount)}
-                  onChange={(e) => setGrantAmount(e.target.value)}
-                  placeholder="Cantidad (ej: 10)"
-                />
-                <Input
-                  value={grantNote}
-                  onChange={(e) => setGrantNote(e.target.value)}
-                  placeholder="Nota (opcional)"
-                />
-              </div>
-
-              <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-                <SoftButton onClick={() => setGrantUserId(null)} style={{ width: "100%" }}>
-                  Cancelar
-                </SoftButton>
-                <PrimaryButton onClick={grantCredits} style={{ width: "100%" }}>
-                  Guardar
-                </PrimaryButton>
-              </div>
+              ))}
             </div>
-          </div>
-        ) : null}
-
-        {/* CREATE USER MODAL */}
-        {creating ? (
-          <div style={modalBackdrop}>
-            <div style={modalCard}>
-              <div style={{ fontWeight: 980, fontSize: 18 }}>Crear usuario</div>
-              <div style={{ color: "#6b7280", marginTop: 6, fontSize: 13 }}>
-                {isSuper ? "Puedes crear users o admins." : "Como admin, solo puedes crear users."}
-              </div>
-
-              <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
-                <Input value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="Email" />
-                <Input
-                  value={newUserPass}
-                  onChange={(e) => setNewUserPass(e.target.value)}
-                  placeholder="Password"
-                  type="password"
-                />
-
-                <div style={{ display: "grid", gap: 6 }}>
-                  <div style={{ fontWeight: 900, fontSize: 12, color: "#6b7280" }}>Rol</div>
-                  <select
-                    value={newUserRole}
-                    onChange={(e) => setNewUserRole(e.target.value)}
-                    disabled={!isSuper}
-                    style={{
-                      padding: 12,
-                      borderRadius: 14,
-                      border: "1px solid #e5e7eb",
-                      background: !isSuper ? "#f3f4f6" : "#fff",
-                      fontWeight: 900,
-                    }}
-                  >
-                    <option value="user">user</option>
-                    <option value="admin">admin</option>
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-                <SoftButton onClick={() => setCreating(false)} style={{ width: "100%" }}>
-                  Cancelar
-                </SoftButton>
-                <PrimaryButton onClick={createUser} style={{ width: "100%" }}>
-                  Crear
-                </PrimaryButton>
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </>
-    );
-  };
+          )}
+        </div>
+      </div>
+    </>
+  );
 
   const LogsView = () => (
     <>
-      <Header title="Logs de consultas" subtitle="Filtra por tipo, fechas y email." />
-
-      <Card
-        title="Consultas"
-        subtitle="Logs globales (con scope por rol)."
+      <Header
+        title="Logs de consultas"
+        desc="Filtra por tipo, fechas y email."
         right={
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <SoftButton onClick={refreshAdmin}>Aplicar filtros</SoftButton>
-            <SoftButton
+            <span style={styles.pill("indigo")}>{isSuperAdmin ? "Super Admin" : "Admin"}</span>
+            <button style={styles.btn("ghost")} onClick={refreshAll}>Refrescar</button>
+          </div>
+        }
+      />
+
+      <div style={styles.card}>
+        <div style={styles.cardHeader}>
+          <div>
+            <div style={{ fontWeight: 950 }}>Consultas</div>
+            <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>Logs globales (con scope por rol).</div>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <button
+              style={styles.btn("ghost")}
               onClick={() => {
-                setLogsType("all");
-                setLogsRange("7d");
-                setLogsEmail("");
+                setApplyFiltersKey((x) => x + 1);
+              }}
+            >
+              Aplicar filtros
+            </button>
+            <button
+              style={styles.btn("ghost")}
+              onClick={() => {
+                setLogType("all");
+                setLogRange("7d");
+                setLogEmail("");
+                setApplyFiltersKey((x) => x + 1);
               }}
             >
               Limpiar
-            </SoftButton>
-          </div>
-        }
-      >
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 950, marginBottom: 6 }}>Tipo</div>
-            <select
-              value={logsType}
-              onChange={(e) => setLogsType(e.target.value)}
-              style={{ width: "100%", padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", fontWeight: 900 }}
-            >
-              <option value="all">Todos</option>
-              <option value="semanas">semanas</option>
-              <option value="nss">nss</option>
-              <option value="vigencia">vigencia</option>
-              <option value="noderecho">noderecho</option>
-            </select>
-          </div>
-
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 950, marginBottom: 6 }}>Rango rápido</div>
-            <select
-              value={logsRange}
-              onChange={(e) => setLogsRange(e.target.value)}
-              style={{ width: "100%", padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", fontWeight: 900 }}
-            >
-              <option value="24h">Últimas 24h</option>
-              <option value="7d">Últimos 7 días</option>
-              <option value="30d">Últimos 30 días</option>
-              <option value="all">Todo</option>
-            </select>
-          </div>
-
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 950, marginBottom: 6 }}>Buscar por email</div>
-            <Input value={logsEmail} onChange={(e) => setLogsEmail(e.target.value)} placeholder="correo@..." />
+            </button>
           </div>
         </div>
 
-        {filteredLogs.length === 0 ? (
-          <div style={{ color: "#6b7280" }}>Sin logs para esos filtros.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 10 }}>
-            {filteredLogs.slice(0, 80).map((l) => (
-              <div
-                key={l.id}
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 16,
-                  background: "#fff",
-                  padding: 14,
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                  <div style={{ fontWeight: 980 }}>{l.email}</div>
-                  <div style={{ color: "#6b7280", fontSize: 12 }}>{fmtDate(l.createdAt)}</div>
-                </div>
-
-                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                  <Pill tone="gray">{l.type}</Pill>
-                  <Pill tone="cyan">{l.curp}</Pill>
-                  {l.nss ? <Pill tone="gray">{l.nss}</Pill> : null}
-                  <Pill tone="green">{(l.files || []).length} PDF(s)</Pill>
-                </div>
-
-                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                  {(l.files || []).map((f) => (
-                    <PdfDownloadButton
-                      key={f.fileId}
-                      label={f.filename || "documento.pdf"}
-                      status={downloadStatus[f.fileId] || "idle"}
-                      onClick={() => downloadFile(f.fileId, f.filename)}
-                    />
-                  ))}
-                  <div style={{ fontSize: 12, color: "#6b7280" }}>
-                    * Si ya pasó 24h, el backend puede haberlo borrado.
-                  </div>
-                </div>
-              </div>
-            ))}
+        <div style={styles.cardBody}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <div style={styles.label}>Tipo</div>
+              <select value={logType} onChange={(e) => setLogType(e.target.value)} style={styles.input}>
+                <option value="all">Todos</option>
+                <option value="semanas">semanas</option>
+                <option value="asignacion">asignacion</option>
+                <option value="vigencia">vigencia</option>
+                <option value="noderecho">noderecho</option>
+              </select>
+            </div>
+            <div>
+              <div style={styles.label}>Rango rápido</div>
+              <select value={logRange} onChange={(e) => setLogRange(e.target.value)} style={styles.input}>
+                <option value="24h">Últimas 24h</option>
+                <option value="7d">Últimos 7 días</option>
+                <option value="30d">Últimos 30 días</option>
+                <option value="all">Todo</option>
+              </select>
+            </div>
+            <div>
+              <div style={styles.label}>Buscar por email</div>
+              <input value={logEmail} onChange={(e) => setLogEmail(e.target.value)} placeholder="correo@..." style={styles.input} />
+            </div>
           </div>
-        )}
-      </Card>
+
+          {loadingLogs ? (
+            <div style={{ color: "#64748b" }}>Cargando logs…</div>
+          ) : logsFiltered.length === 0 ? (
+            <div style={{ color: "#64748b" }}>Sin logs para esos filtros.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {logsFiltered.slice(0, 60).map((l) => {
+                const count = (l.files || []).length;
+                const curpChip = l.curp ? String(l.curp).slice(0, 18) : "";
+                return (
+                  <div key={l.id} style={{ padding: 14, borderRadius: 18, border: "1px solid #e5e7eb", background: "#fff" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                      <div style={{ fontWeight: 950 }}>{l.email}</div>
+                      <div style={{ fontSize: 12, color: "#64748b" }}>{formatDate(l.createdAt)}</div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                      <span style={styles.pill("gray")}>{l.type}</span>
+                      {curpChip ? <span style={styles.pill("cyan")}>{curpChip}</span> : null}
+                      {l.nss ? <span style={styles.pill("gray")}>{l.nss}</span> : null}
+                      <span style={styles.pill("green")}>{count} PDF(s)</span>
+                    </div>
+
+                    {/* Archivos */}
+                    <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                      {(l.files || []).map((f) => (
+                        <div
+                          key={f.fileId}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 12,
+                            padding: 12,
+                            borderRadius: 16,
+                            border: "1px solid #e5e7eb",
+                            background: "#f8fafc",
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {f.filename || "documento.pdf"}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
+                              {f.expiresAt ? `Expira: ${formatDate(f.expiresAt)}` : "* Si ya pasó 24h, el backend pudo haberlo borrado."}
+                            </div>
+                          </div>
+
+                          <PdfButton state={downloadState[f.fileId] || "ready"} onClick={() => downloadFile(f.fileId, f.filename)} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              {logsFiltered.length > 60 ? (
+                <div style={{ fontSize: 12, color: "#64748b" }}>Mostrando 60 de {logsFiltered.length} (para performance).</div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </div>
     </>
   );
 
   const CreditLogsView = () => (
     <>
-      <Header title="Logs de créditos" subtitle="Historial de otorgamientos y ajustes de créditos." />
+      <Header title="Logs de créditos" desc="Historial de otorgamientos y ajustes de créditos." />
 
-      <Card
-        title="Créditos"
-        subtitle="Registros de cambios de créditos."
-        right={
+      <div style={styles.card}>
+        <div style={styles.cardHeader}>
+          <div>
+            <div style={{ fontWeight: 950 }}>Créditos</div>
+            <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>Registros de cambios de créditos.</div>
+          </div>
+
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <div style={{ width: 220 }}>
-              <Input value={creditEmail} onChange={(e) => setCreditEmail(e.target.value)} placeholder="Filtrar por email..." />
-            </div>
-            <SoftButton onClick={refreshAdmin} title="Actualizar">↻</SoftButton>
+            <input
+              value={creditEmail}
+              onChange={(e) => setCreditEmail(e.target.value)}
+              placeholder="Filtrar por email..."
+              style={{ ...styles.input, width: 220 }}
+            />
+            <button style={styles.btn("ghost")} onClick={refreshAll}>↻</button>
           </div>
-        }
-      >
-        {filteredCreditLogs.length === 0 ? (
-          <div style={{ color: "#6b7280" }}>Sin logs de créditos.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 10 }}>
-            {filteredCreditLogs.slice(0, 120).map((x) => (
-              <div
-                key={x.id}
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 16,
-                  background: "#fff",
-                  padding: 14,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: 10,
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 980 }}>{x.userEmail}</div>
-                  <div style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>
-                    Por: <b style={{ color: "#111827" }}>{x.adminEmail}</b> • {fmtDate(x.createdAt)}
-                  </div>
-                  {x.note ? <div style={{ marginTop: 8, color: "#6b7280", fontSize: 13 }}>{x.note}</div> : null}
-                </div>
+        </div>
 
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  <Pill tone={x.delta >= 0 ? "green" : "red"}>
-                    {x.delta >= 0 ? `+${x.delta}` : `${x.delta}`}
-                  </Pill>
-                  <Pill tone="gray">Antes: {x.before}</Pill>
-                  <Pill tone="indigo">Después: {x.after}</Pill>
+        <div style={styles.cardBody}>
+          {loadingCreditLogs ? (
+            <div style={{ color: "#64748b" }}>Cargando logs de créditos…</div>
+          ) : creditLogsFiltered.length === 0 ? (
+            <div style={{ color: "#64748b" }}>Sin logs de créditos.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {creditLogsFiltered.slice(0, 80).map((x) => (
+                <div key={x.id} style={{ padding: 14, borderRadius: 18, border: "1px solid #e5e7eb", background: "#fff" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <div style={{ fontWeight: 950, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {x.userEmail}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>{formatDate(x.createdAt)}</div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                    <span style={styles.pill("gray")}>Admin: {x.adminEmail}</span>
+                    <span style={styles.pill(x.delta >= 0 ? "green" : "red")}>Δ {x.delta}</span>
+                    <span style={styles.pill("cyan")}>
+                      {x.before} → {x.after}
+                    </span>
+                    {x.note ? <span style={styles.pill("gray")}>Nota: {x.note}</span> : null}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+              ))}
+              {creditLogsFiltered.length > 80 ? (
+                <div style={{ fontSize: 12, color: "#64748b" }}>Mostrando 80 de {creditLogsFiltered.length} (para performance).</div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </div>
     </>
   );
 
-  /** ===================== MODAL STYLES ===================== */
-  const modalBackdrop = {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(17, 24, 39, .55)",
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 9998,
-    padding: 16,
-  };
-
-  const modalCard = {
-    width: "100%",
-    maxWidth: 520,
-    background: "#fff",
-    borderRadius: 18,
-    border: "1px solid #e5e7eb",
-    boxShadow: "0 28px 80px rgba(0,0,0,.25)",
-    padding: 16,
-  };
-
-  /** ===================== MAIN RENDER ===================== */
+  // ===================== render main =====================
   return (
-    <PageShell>
+    <div style={styles.page}>
       <Toast toast={toast} onClose={() => setToast(null)} />
 
-      <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", minHeight: "100vh" }}>
+      <div style={styles.shell}>
         <Sidebar />
 
-        <main style={{ padding: 26 }}>
-          <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+        <main style={styles.main}>
+          <div style={{ maxWidth: 1080, margin: "0 auto" }}>
             {!isLogged ? (
-              <Header
-                title="Consultar"
-                subtitle="Genera documentos del IMSS. Inicia sesión para generar y descargar PDFs."
-              />
-            ) : null}
-
-            {view === "consultar" && <ConsultView />}
-
-            {isAdmin && view === "dashboard" && <DashboardView />}
-            {isAdmin && view === "users" && <UsersView />}
-            {isAdmin && view === "logs" && <LogsView />}
-            {isAdmin && view === "creditlogs" && <CreditLogsView />}
-
-            {!isLogged ? (
-              <div style={{ marginTop: 10 }}>
-                <Card title="Tip" subtitle="Si no puedes iniciar sesión, revisa BACKEND_URL y tu API de login.">
-                  <div style={{ color: "#6b7280", fontSize: 13, lineHeight: 1.5 }}>
-                    Si Vercel no toma la variable, este frontend usa un fallback:
-                    <div style={{ marginTop: 8 }}>
-                      <Pill tone="gray">{BACKEND_URL}</Pill>
-                    </div>
-                  </div>
-                </Card>
-              </div>
-            ) : null}
+              <>
+                <Header title="Consultar" desc="Inicia sesión para generar y descargar tus PDFs desde el panel." />
+                <div style={{ color: "#64748b", fontSize: 13 }}>
+                  Si ya configuraste <b>VITE_BACKEND_URL</b> en Vercel, aquí debe apuntar a tu Render.
+                </div>
+              </>
+            ) : (
+              <>
+                {view === "consultar" && <ConsultView />}
+                {view === "dashboard" && isAdmin && <DashboardView />}
+                {view === "users" && isAdmin && <UsersView />}
+                {view === "logs" && <LogsView />}
+                {view === "creditlogs" && isAdmin && <CreditLogsView />}
+              </>
+            )}
           </div>
         </main>
       </div>
-    </PageShell>
+
+      {/* Create user modal */}
+      <Modal
+        open={createOpen}
+        title="Crear usuario"
+        subtitle={isSuperAdmin ? "Puedes crear users o admins." : "Como admin, crea usuarios (role=user)."}
+        onClose={() => setCreateOpen(false)}
+      >
+        <div style={{ display: "grid", gap: 12 }}>
+          <div>
+            <div style={styles.label}>Email</div>
+            <input value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="correo@..." style={styles.input} />
+          </div>
+          <div>
+            <div style={styles.label}>Password</div>
+            <input value={newUserPass} onChange={(e) => setNewUserPass(e.target.value)} placeholder="mínimo 6" type="password" style={styles.input} />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <div style={styles.label}>Rol</div>
+              <select
+                value={newUserRole}
+                onChange={(e) => setNewUserRole(e.target.value)}
+                style={styles.input}
+                disabled={!isSuperAdmin}
+              >
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </select>
+              {!isSuperAdmin ? <div style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>Solo Super Admin puede crear admins.</div> : null}
+            </div>
+
+            <div style={{ display: "grid", alignContent: "end" }}>
+              <button onClick={createUser} style={styles.btn("primary")}>Crear</button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Credits modal */}
+      <Modal
+        open={creditsOpen}
+        title="Asignar créditos"
+        subtitle={creditsTarget ? `Usuario: ${creditsTarget.email}` : ""}
+        onClose={() => setCreditsOpen(false)}
+      >
+        <div style={{ display: "grid", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <div style={styles.label}>Amount (entero)</div>
+              <input
+                value={creditsAmount}
+                onChange={(e) => setCreditsAmount(e.target.value)}
+                placeholder="10 o -10"
+                style={styles.input}
+              />
+            </div>
+            <div>
+              <div style={styles.label}>Nota (opcional)</div>
+              <input value={creditsNote} onChange={(e) => setCreditsNote(e.target.value)} placeholder="motivo..." style={styles.input} />
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <button onClick={() => setCreditsOpen(false)} style={styles.btn("ghost")}>Cancelar</button>
+            <button onClick={grantCredits} style={styles.btn("primary")}>Guardar</button>
+          </div>
+        </div>
+      </Modal>
+    </div>
   );
 }
