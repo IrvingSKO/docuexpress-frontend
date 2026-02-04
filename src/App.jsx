@@ -1,518 +1,413 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 /**
- * =========================================================
- *  CONFIG
- * =========================================================
+ * BACKEND_URL:
+ * - Usa VITE_BACKEND_URL si existe
+ * - Si no, cae al Render (default)
  */
 const BACKEND_URL =
   (import.meta?.env?.VITE_BACKEND_URL &&
     String(import.meta.env.VITE_BACKEND_URL).trim()) ||
   "https://docuexpress.onrender.com";
 
-const SUPER_ADMIN_EMAIL = "irvingestray@gmail.com";
-
-/**
- * =========================================================
- *  UI HELPERS (estilo “premium” sin CSS externo)
- * =========================================================
- */
-const ui = {
-  bg: "#F6F8FC",
-  card: "#FFFFFF",
-  text: "#0F172A",
-  mut: "#64748B",
-  border: "#E6EAF2",
-  primary: "#4F46E5",
-  primary2: "#7C3AED",
-  danger: "#DC2626",
-  success: "#16A34A",
-  shadow: "0 16px 40px rgba(15, 23, 42, 0.08)",
-  shadow2: "0 10px 25px rgba(15, 23, 42, 0.08)",
-  radius: 18,
-};
-
-function cx(...arr) {
-  return arr.filter(Boolean).join(" ");
-}
-
-function Icon({ children }) {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        width: 18,
-        height: 18,
-        alignItems: "center",
-        justifyContent: "center",
-        marginRight: 8,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Pill({ color = "gray", children }) {
-  const map = {
-    gray: { bg: "#F1F5F9", fg: "#0F172A", bd: "#E2E8F0" },
-    blue: { bg: "#EEF2FF", fg: "#3730A3", bd: "#DDE3FF" },
-    green: { bg: "#ECFDF5", fg: "#065F46", bd: "#C7F9DD" },
-    red: { bg: "#FEF2F2", fg: "#991B1B", bd: "#FECACA" },
-    purple: { bg: "#F5F3FF", fg: "#5B21B6", bd: "#E9D5FF" },
-  }[color];
-
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "5px 10px",
-        borderRadius: 999,
-        border: `1px solid ${map.bd}`,
-        background: map.bg,
-        color: map.fg,
-        fontSize: 12,
-        fontWeight: 600,
-        lineHeight: "16px",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Button({
-  children,
-  onClick,
-  variant = "primary",
-  disabled = false,
-  loading = false,
-  style,
-  title,
-  type = "button",
-}) {
-  const base = {
-    height: 44,
-    padding: "0 16px",
-    borderRadius: 14,
-    border: `1px solid ${ui.border}`,
-    background: ui.card,
-    color: ui.text,
-    fontWeight: 800,
-    cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.65 : 1,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    userSelect: "none",
-    transition: "transform .06s ease, box-shadow .15s ease",
-    boxShadow: "0 1px 0 rgba(15,23,42,.04)",
-  };
-
-  const variants = {
-    primary: {
-      background: `linear-gradient(90deg, ${ui.primary}, ${ui.primary2})`,
-      color: "#fff",
-      border: "none",
-      boxShadow: "0 18px 38px rgba(79,70,229,.18)",
-    },
-    ghost: {
-      background: "#fff",
-      border: `1px solid ${ui.border}`,
-      color: ui.text,
-    },
-    danger: {
-      background: ui.danger,
-      color: "#fff",
-      border: "none",
-      boxShadow: "0 18px 38px rgba(220,38,38,.14)",
-    },
-    soft: {
-      background: "#EEF2FF",
-      color: "#3730A3",
-      border: "1px solid #DDE3FF",
-    },
-  };
-
-  return (
-    <button
-      type={type}
-      title={title}
-      disabled={disabled || loading}
-      onClick={onClick}
-      style={{
-        ...base,
-        ...variants[variant],
-        ...style,
-      }}
-      onMouseDown={(e) => {
-        // evita “focus jumping” en algunos browsers cuando hay rerenders
-        e.currentTarget.style.transform = "scale(0.99)";
-      }}
-      onMouseUp={(e) => {
-        e.currentTarget.style.transform = "scale(1)";
-      }}
-    >
-      {loading ? (
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-          <span
-            style={{
-              width: 14,
-              height: 14,
-              borderRadius: 999,
-              border: "2px solid rgba(255,255,255,.45)",
-              borderTopColor: "#fff",
-              display: "inline-block",
-              animation: "spin .8s linear infinite",
-            }}
-          />
-          Procesando…
-        </span>
-      ) : (
-        children
-      )}
-    </button>
-  );
-}
-
-function Input({ label, hint, ...props }) {
-  return (
-    <div style={{ display: "grid", gap: 8 }}>
-      {label && (
-        <div style={{ fontSize: 12, fontWeight: 900, color: ui.text }}>
-          {label}
-        </div>
-      )}
-      <input
-        {...props}
-        style={{
-          height: 46,
-          borderRadius: 14,
-          border: `1px solid ${ui.border}`,
-          background: "#fff",
-          padding: "0 14px",
-          outline: "none",
-          fontSize: 14,
-          fontWeight: 700,
-          color: ui.text,
-          boxShadow: "0 1px 0 rgba(15,23,42,.02)",
-          ...(props.style || {}),
-        }}
-        onFocus={(e) => {
-          e.currentTarget.style.borderColor = "#CBD5E1";
-          e.currentTarget.style.boxShadow = "0 0 0 4px rgba(79,70,229,.10)";
-          props.onFocus?.(e);
-        }}
-        onBlur={(e) => {
-          e.currentTarget.style.borderColor = ui.border;
-          e.currentTarget.style.boxShadow = "0 1px 0 rgba(15,23,42,.02)";
-          props.onBlur?.(e);
-        }}
-      />
-      {hint && (
-        <div style={{ fontSize: 12, color: ui.mut, marginTop: -4 }}>
-          {hint}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Card({ children, style }) {
-  return (
-    <div
-      style={{
-        background: ui.card,
-        border: `1px solid ${ui.border}`,
-        borderRadius: ui.radius,
-        boxShadow: ui.shadow2,
-        overflow: "hidden",
-        ...style,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function CardHeader({ title, subtitle, right }) {
-  return (
-    <div
-      style={{
-        padding: "18px 18px",
-        borderBottom: `1px solid ${ui.border}`,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 14,
-      }}
-    >
-      <div style={{ display: "grid", gap: 4 }}>
-        <div style={{ fontSize: 16, fontWeight: 1000, color: ui.text }}>
-          {title}
-        </div>
-        {subtitle && (
-          <div style={{ fontSize: 13, color: ui.mut }}>{subtitle}</div>
-        )}
-      </div>
-      {right}
-    </div>
-  );
-}
-
-/**
- * =========================================================
- *  TOAST
- * =========================================================
- */
-function Toast({ toast, onClose }) {
-  if (!toast) return null;
-  const colors = {
-    success: ui.success,
-    error: ui.danger,
-    info: ui.primary,
-  };
-  return (
-    <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9999 }}>
-      <div
-        style={{
-          background: "#fff",
-          borderLeft: `6px solid ${colors[toast.type] || ui.primary}`,
-          padding: 14,
-          borderRadius: 16,
-          width: 420,
-          boxShadow: ui.shadow,
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-          <div>
-            <div style={{ fontWeight: 1000, color: ui.text }}>{toast.title}</div>
-            <div style={{ fontSize: 13, marginTop: 6, color: ui.mut, whiteSpace: "pre-wrap" }}>
-              {toast.message}
-            </div>
-          </div>
-          <Button variant="ghost" onClick={onClose} style={{ height: 40 }}>
-            Cerrar
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * =========================================================
- *  API HELPERS
- * =========================================================
- */
-function stripTags(s) {
-  return String(s || "")
-    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, "")
-    .replace(/<\/?[^>]+(>|$)/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeErrorMessage(maybeHtmlOrJson) {
-  const raw = String(maybeHtmlOrJson || "").trim();
-  if (!raw) return "Ocurrió un error.";
-  const clean = stripTags(raw);
-  const short = clean.length > 240 ? clean.slice(0, 240) + "…" : clean;
-
-  // Incapsula / WAF típicos
-  if (/incapsula/i.test(raw) || /request unsuccessful/i.test(raw)) {
-    return "El proveedor externo bloqueó la solicitud (Incapsula/WAF). Intenta con otro CURP/NSS, espera unos minutos o vuelve a intentar.";
-  }
-  if (/not found/i.test(raw) && /<!doctype html/i.test(raw)) {
-    return "Ruta no encontrada. Revisa que el BACKEND_URL esté correcto.";
-  }
-  return short;
-}
-
+/* ===========================
+   Helpers
+=========================== */
 async function safeJson(res) {
   const t = await res.text();
-  // intenta JSON
   try {
     return JSON.parse(t);
   } catch {
-    // texto/HTML
     return { message: t };
   }
 }
 
-async function authFetch(url, opts = {}) {
-  const token = localStorage.getItem("token");
-  const headers = {
-    ...(opts.headers || {}),
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-  return fetch(`${BACKEND_URL}${url}`, { ...opts, headers });
+function nowISO() {
+  return new Date().toISOString();
 }
 
-/**
- * =========================================================
- *  DOMAIN HELPERS
- * =========================================================
- */
-const DOC_TYPES = [
-  {
-    key: "semanas",
-    title: "Semanas cotizadas",
-    desc: "Constancia de semanas cotizadas en el IMSS.",
-    pill: "CURP + NSS",
-    needCurp: true,
-    needNss: true,
-  },
-  {
-    key: "nss",
-    title: "Asignación / Localización NSS",
-    desc: "Genera documentos de NSS (puede devolver 2 PDFs).",
-    pill: "Solo CURP • 2 PDFs",
-    needCurp: true,
-    needNss: false, // opcional
-  },
-  {
-    key: "vigencia",
-    title: "Vigencia de derechos",
-    desc: "Constancia de vigencia de derechos.",
-    pill: "CURP + NSS",
-    needCurp: true,
-    needNss: true,
-  },
-  {
-    key: "noderecho",
-    title: "No derechohabiencia",
-    desc: "Constancia de no derecho al servicio médico.",
-    pill: "Solo CURP (según proveedor)",
-    needCurp: true,
-    needNss: false,
-  },
-];
+function toDateInputValue(d) {
+  // YYYY-MM-DD
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
-function typeLabel(t) {
-  const m = {
+function subtractDays(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() - days);
+  return d;
+}
+
+function clampStr(s, max = 120) {
+  const x = String(s ?? "");
+  return x.length > max ? x.slice(0, max) + "…" : x;
+}
+
+function fileLabelFromType(type) {
+  const map = {
     semanas: "Semanas",
     nss: "NSS",
     vigencia: "Vigencia",
     noderecho: "NoDerecho",
   };
-  return m[t] || "Documento";
+  return map[type] || "Documento";
 }
 
-function buildNiceFilename({ type, curp, index = 0, ext = "pdf" }) {
-  const base = `${typeLabel(type)}_${String(curp || "SIN_CURP").toUpperCase()}`;
-  const suffix = index > 0 ? `_${index + 1}` : "";
-  return `${base}${suffix}.${ext}`;
+function normalizeEmail(s) {
+  return String(s || "").trim().toLowerCase();
 }
 
-/**
- * =========================================================
- *  APP
- * =========================================================
- */
+function isWAFHtmlMessage(msg) {
+  // Cuando el proveedor regresa HTML/WAF (Incapsula, etc)
+  const m = String(msg || "");
+  return m.includes("<html") || m.toLowerCase().includes("incapsula");
+}
+
+/* ===========================
+   Auth fetch
+=========================== */
+async function authFetch(path, opts = {}) {
+  const token = localStorage.getItem("token");
+  const headers = {
+    ...(opts.headers || {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
+  // Si mandamos body como JSON, aseguramos content-type
+  const hasBody = opts.body !== undefined && opts.body !== null;
+  const isFormData = hasBody && opts.body instanceof FormData;
+
+  if (hasBody && !isFormData) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return fetch(`${BACKEND_URL}${path}`, { ...opts, headers });
+}
+
+/* ===========================
+   UI: Tiny icons (inline)
+=========================== */
+function Icon({ name, size = 18 }) {
+  const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none" };
+  const stroke = { stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" };
+
+  if (name === "search")
+    return (
+      <svg {...common}>
+        <path {...stroke} d="M21 21l-4.35-4.35" />
+        <circle cx="11" cy="11" r="7" {...stroke} />
+      </svg>
+    );
+
+  if (name === "dashboard")
+    return (
+      <svg {...common}>
+        <path {...stroke} d="M4 13h6V4H4v9zM14 20h6V11h-6v9zM14 9h6V4h-6v5zM4 20h6v-5H4v5z" />
+      </svg>
+    );
+
+  if (name === "users")
+    return (
+      <svg {...common}>
+        <path {...stroke} d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" {...stroke} />
+        <path {...stroke} d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path {...stroke} d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    );
+
+  if (name === "file")
+    return (
+      <svg {...common}>
+        <path {...stroke} d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path {...stroke} d="M14 2v6h6" />
+        <path {...stroke} d="M8 13h8M8 17h8M8 9h2" />
+      </svg>
+    );
+
+  if (name === "credit")
+    return (
+      <svg {...common}>
+        <path {...stroke} d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+        <path {...stroke} d="M16 11h2" />
+      </svg>
+    );
+
+  if (name === "logout")
+    return (
+      <svg {...common}>
+        <path {...stroke} d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+        <path {...stroke} d="M16 17l5-5-5-5" />
+        <path {...stroke} d="M21 12H9" />
+      </svg>
+    );
+
+  if (name === "refresh")
+    return (
+      <svg {...common}>
+        <path {...stroke} d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-9-9 9 9 0 0 1 9-9 9 9 0 0 1 6.36 2.64" />
+        <path {...stroke} d="M21 3v6h-6" />
+      </svg>
+    );
+
+  if (name === "plus")
+    return (
+      <svg {...common}>
+        <path {...stroke} d="M12 5v14M5 12h14" />
+      </svg>
+    );
+
+  if (name === "download")
+    return (
+      <svg {...common}>
+        <path {...stroke} d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <path {...stroke} d="M7 10l5 5 5-5" />
+        <path {...stroke} d="M12 15V3" />
+      </svg>
+    );
+
+  if (name === "key")
+    return (
+      <svg {...common}>
+        <path {...stroke} d="M21 2l-2 2m-7.5 7.5a4.5 4.5 0 1 1 0-6.36A4.5 4.5 0 0 1 11.5 11.5z" />
+        <path {...stroke} d="M15 7l6-5" />
+        <path {...stroke} d="M18 6l2 2" />
+      </svg>
+    );
+
+  return null;
+}
+
+/* ===========================
+   Toast
+=========================== */
+function Toast({ toast, onClose }) {
+  if (!toast) return null;
+
+  const colors = {
+    success: "#16a34a",
+    error: "#dc2626",
+    info: "#4f46e5",
+    warn: "#f59e0b",
+  };
+
+  return (
+    <div style={styles.toastWrap}>
+      <div style={{ ...styles.toast, borderLeftColor: colors[toast.type] || "#4f46e5" }}>
+        <div style={styles.toastHeader}>
+          <div style={{ fontWeight: 800 }}>{toast.title}</div>
+          <button onClick={onClose} style={styles.toastClose}>Cerrar</button>
+        </div>
+        <div style={styles.toastBody}>{toast.message}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ===========================
+   Small UI building blocks
+=========================== */
+function Pill({ children, tone = "neutral" }) {
+  const toneStyle =
+    tone === "purple"
+      ? { background: "rgba(79,70,229,.10)", borderColor: "rgba(79,70,229,.20)", color: "#3730a3" }
+      : tone === "green"
+      ? { background: "rgba(22,163,74,.10)", borderColor: "rgba(22,163,74,.20)", color: "#166534" }
+      : tone === "red"
+      ? { background: "rgba(220,38,38,.10)", borderColor: "rgba(220,38,38,.20)", color: "#991b1b" }
+      : tone === "blue"
+      ? { background: "rgba(59,130,246,.10)", borderColor: "rgba(59,130,246,.20)", color: "#1d4ed8" }
+      : { background: "rgba(2,6,23,.06)", borderColor: "rgba(2,6,23,.08)", color: "#111827" };
+
+  return <span style={{ ...styles.pill, ...toneStyle }}>{children}</span>;
+}
+
+function Button({ children, variant = "primary", onClick, disabled, leftIcon, style }) {
+  const base =
+    variant === "primary"
+      ? styles.btnPrimary
+      : variant === "ghost"
+      ? styles.btnGhost
+      : variant === "danger"
+      ? styles.btnDanger
+      : styles.btnSoft;
+
+  return (
+    <button onClick={onClick} disabled={disabled} style={{ ...base, ...(style || {}) }}>
+      {leftIcon ? <span style={{ marginRight: 10, display: "inline-flex" }}>{leftIcon}</span> : null}
+      {children}
+    </button>
+  );
+}
+
+function Input({ label, value, onChange, placeholder, type = "text", right, autoComplete }) {
+  return (
+    <div style={{ width: "100%" }}>
+      {label ? <div style={styles.label}>{label}</div> : null}
+      <div style={styles.inputWrap}>
+        <input
+          type={type}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          autoComplete={autoComplete}
+          style={styles.input}
+        />
+        {right ? <div style={styles.inputRight}>{right}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function Select({ label, value, onChange, options }) {
+  return (
+    <div style={{ width: "100%" }}>
+      {label ? <div style={styles.label}>{label}</div> : null}
+      <select value={value} onChange={onChange} style={styles.select}>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function Card({ title, subtitle, right, children }) {
+  return (
+    <div style={styles.card}>
+      <div style={styles.cardHeader}>
+        <div>
+          <div style={styles.cardTitle}>{title}</div>
+          {subtitle ? <div style={styles.cardSub}>{subtitle}</div> : null}
+        </div>
+        {right ? <div>{right}</div> : null}
+      </div>
+      <div style={styles.cardBody}>{children}</div>
+    </div>
+  );
+}
+
+function StatCard({ title, value, icon }) {
+  return (
+    <div style={styles.statCard}>
+      <div style={styles.statTop}>
+        <div style={styles.statTitle}>{title}</div>
+        <div style={styles.statIcon}>{icon}</div>
+      </div>
+      <div style={styles.statValue}>{value}</div>
+    </div>
+  );
+}
+
+/* ===========================
+   Main App
+=========================== */
 export default function App() {
   const [toast, setToast] = useState(null);
   const showToast = (t) => setToast(t);
 
-  const [me, setMe] = useState(null);
-  const isLogged = !!me;
-  const isAdmin = me?.role === "admin";
-  const isSuper = me?.email === SUPER_ADMIN_EMAIL;
-
-  // vistas
-  const [view, setView] = useState("consultar"); // consultar | dashboard | users | logs | creditlogs
-
-  // login
+  // Auth state
   const [email, setEmail] = useState("admin@docuexpress.com");
   const [password, setPassword] = useState("");
-  const [loginLoading, setLoginLoading] = useState(false);
+  const [me, setMe] = useState(null);
 
-  // data admin
-  const [users, setUsers] = useState([]);
-  const [logs, setLogs] = useState([]);
-  const [creditLogs, setCreditLogs] = useState([]);
-
-  // consultar
-  const [step, setStep] = useState("cards"); // cards | form
+  // UI state
+  const [view, setView] = useState("consultar"); // consultar | dashboard | users | logs | creditlogs
+  const [consultStep, setConsultStep] = useState("cards"); // cards | form
   const [type, setType] = useState("semanas");
   const [curp, setCurp] = useState("");
   const [nss, setNss] = useState("");
   const [files, setFiles] = useState([]);
-  const [generateLoading, setGenerateLoading] = useState(false);
 
-  // descargas con estado
+  // Data
+  const [users, setUsers] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [creditLogs, setCreditLogs] = useState([]);
+
+  // Loading states
+  const [loadingLogin, setLoadingLogin] = useState(false);
+  const [loadingGenerate, setLoadingGenerate] = useState(false);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [loadingCreditLogs, setLoadingCreditLogs] = useState(false);
+
+  // Download loading per fileId
   const [downloading, setDownloading] = useState({}); // { [fileId]: true }
 
-  // filtros logs
-  const [logType, setLogType] = useState("todos");
-  const [logRange, setLogRange] = useState("7d"); // 24h | 7d | 30d | all
+  // Filters (logs)
+  const [logType, setLogType] = useState("all");
+  const [logRange, setLogRange] = useState("7"); // days: 1,7,30
   const [logEmail, setLogEmail] = useState("");
-  const [applyLogFiltersFlag, setApplyLogFiltersFlag] = useState(0);
 
-  // users: crear usuario modal simple
+  // Filters (credit logs)
+  const [creditEmail, setCreditEmail] = useState("");
+
+  // Create user modal (simple)
   const [createOpen, setCreateOpen] = useState(false);
-  const [newUEmail, setNewUEmail] = useState("");
-  const [newUPass, setNewUPass] = useState("");
-  const [newURole, setNewURole] = useState("user");
-  const [createLoading, setCreateLoading] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPass, setNewUserPass] = useState("");
+  const [newUserRole, setNewUserRole] = useState("user");
+  const [creatingUser, setCreatingUser] = useState(false);
 
-  // credits modal simple
+  // Credits modal (simple)
   const [creditsOpen, setCreditsOpen] = useState(false);
-  const [creditsTarget, setCreditsTarget] = useState(null);
-  const [creditsAmount, setCreditsAmount] = useState(10);
-  const [creditsNote, setCreditsNote] = useState("");
-  const [creditsLoading, setCreditsLoading] = useState(false);
+  const [creditTarget, setCreditTarget] = useState(null);
+  const [creditAmount, setCreditAmount] = useState(10);
+  const [creditNote, setCreditNote] = useState("");
+  const [savingCredits, setSavingCredits] = useState(false);
 
-  /**
-   * =========================================================
-   *  (PASO 1) CHECK ENV (esto ya va adentro del App)
-   *  - Te avisa si VITE_BACKEND_URL está mal (undefined)
-   * =========================================================
-   */
-  useEffect(() => {
-    if (!BACKEND_URL || String(BACKEND_URL).includes("undefined")) {
-      console.error("VITE_BACKEND_URL está mal:", BACKEND_URL);
-      showToast({
-        type: "error",
-        title: "Config inválida",
-        message:
-          "Tu BACKEND_URL está mal (undefined). Revisa Vercel > Environment Variables: VITE_BACKEND_URL",
-      });
-    }
-  }, []);
+  // Search users
+  const [userSearch, setUserSearch] = useState("");
 
-  /**
-   * restore sesión
-   */
+  const isAdmin = me?.role === "admin" || me?.role === "superadmin";
+  const isSuper = me?.role === "superadmin";
+
+  // ✅ Evitar blur “raro”: input focus estable
+  const passwordRef = useRef(null);
+
+  /* ===========================
+     Bootstrap session
+  ============================ */
   useEffect(() => {
     const token = localStorage.getItem("token");
-    const savedMe = localStorage.getItem("me");
-    if (token && savedMe && !me) {
+    if (!token) return;
+
+    // Ping a credits/me para validar token y recuperar usuario guardado si existe
+    const saved = localStorage.getItem("me");
+    if (saved) {
       try {
-        setMe(JSON.parse(savedMe));
+        const parsed = JSON.parse(saved);
+        setMe(parsed);
       } catch {}
     }
+
+    authFetch("/api/credits/me")
+      .then(async (r) => {
+        if (!r.ok) throw new Error("bad");
+        const data = await safeJson(r);
+        // si tengo me, actualizo credits
+        setMe((prev) => (prev ? { ...prev, credits: data.credits ?? prev.credits } : prev));
+      })
+      .catch(() => {
+        localStorage.removeItem("token");
+        localStorage.removeItem("me");
+        setMe(null);
+      });
   }, []);
 
-  /**
-   * =========================================================
-   *  AUTH
-   * =========================================================
-   */
+  /* ===========================
+     Login / Logout
+  ============================ */
   const onLogin = async () => {
-    if (loginLoading) return;
-    setLoginLoading(true);
+    setToast(null);
+    setLoadingLogin(true);
     try {
       const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: String(email).trim(), password }),
+        body: JSON.stringify({ email: String(email).trim(), password: String(password) }),
       });
 
       const data = await safeJson(res);
@@ -521,34 +416,29 @@ export default function App() {
         showToast({
           type: "error",
           title: "Login fallido",
-          message: normalizeErrorMessage(data?.message || `HTTP ${res.status}`),
+          message: data.message || `HTTP ${res.status}`,
         });
-        setLoginLoading(false);
+        setLoadingLogin(false);
         return;
       }
 
       localStorage.setItem("token", data.token);
       localStorage.setItem("me", JSON.stringify(data.user));
       setMe(data.user);
-
-      showToast({
-        type: "success",
-        title: "Sesión iniciada",
-        message: "Bienvenido 👋",
-      });
-
-      // por defecto entra a consultar
+      setPassword("");
       setView("consultar");
-      setStep("cards");
+      setConsultStep("cards");
       setFiles([]);
-    } catch (e) {
+
+      showToast({ type: "success", title: "Sesión iniciada", message: "Bienvenido 👋" });
+    } catch {
       showToast({
         type: "error",
         title: "Error de red",
         message: "No se pudo conectar al backend.",
       });
     } finally {
-      setLoginLoading(false);
+      setLoadingLogin(false);
     }
   };
 
@@ -556,278 +446,190 @@ export default function App() {
     localStorage.removeItem("token");
     localStorage.removeItem("me");
     setMe(null);
-    setUsers([]);
-    setLogs([]);
-    setCreditLogs([]);
-    setFiles([]);
-    setCurp("");
-    setNss("");
+    setEmail("admin@docuexpress.com");
     setPassword("");
     setView("consultar");
-    setStep("cards");
-    showToast({ type: "info", title: "Sesión cerrada", message: "Hasta luego." });
+    setConsultStep("cards");
+    setFiles([]);
+    setToast(null);
   };
 
-  /**
-   * =========================================================
-   *  LOAD ADMIN DATA
-   * =========================================================
-   */
-  const refreshAdmin = async () => {
-    if (!isAdmin) return;
-
+  /* ===========================
+     Load data for admin areas
+  ============================ */
+  const refreshUsers = async () => {
+    setLoadingUsers(true);
     try {
-      const rUsers = await authFetch("/api/users");
-      const dUsers = await safeJson(rUsers);
-      const listUsers = Array.isArray(dUsers) ? dUsers : dUsers.users || dUsers.items || [];
-      setUsers(listUsers);
-
-      const rLogs = await authFetch("/api/logs");
-      const dLogs = await safeJson(rLogs);
-      const listLogs = Array.isArray(dLogs) ? dLogs : dLogs.logs || dLogs.items || [];
-      setLogs(listLogs);
-
-      const rCLogs = await authFetch("/api/creditlogs");
-      const dCLogs = await safeJson(rCLogs);
-      const listCLogs = Array.isArray(dCLogs) ? dCLogs : dCLogs.logs || dCLogs.items || [];
-      setCreditLogs(listCLogs);
-    } catch {
-      showToast({
-        type: "error",
-        title: "Error",
-        message: "No se pudieron cargar datos.",
-      });
+      const r = await authFetch("/api/users");
+      const data = await safeJson(r);
+      if (!r.ok) throw new Error(data.message || "No se pudo cargar usuarios");
+      setUsers(data.users || data.users === undefined ? data.users : (data.users || []));
+      // compat por si backend responde {users:[...]}
+      setUsers(data.users || data.users === undefined ? (data.users || []) : []);
+    } catch (e) {
+      showToast({ type: "error", title: "Error", message: String(e.message || e) });
+    } finally {
+      setLoadingUsers(false);
     }
   };
+
+  const refreshLogs = async () => {
+    setLoadingLogs(true);
+    try {
+      const r = await authFetch("/api/logs");
+      const data = await safeJson(r);
+      if (!r.ok) throw new Error(data.message || "No se pudieron cargar logs");
+      setLogs(Array.isArray(data) ? data : data.logs || []);
+    } catch (e) {
+      showToast({ type: "error", title: "Error", message: String(e.message || e) });
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  const refreshCreditLogs = async () => {
+    setLoadingCreditLogs(true);
+    try {
+      const r = await authFetch("/api/credit-logs");
+      const data = await safeJson(r);
+      if (!r.ok) throw new Error(data.message || "No se pudieron cargar logs de créditos");
+      setCreditLogs(data.logs || []);
+    } catch (e) {
+      showToast({ type: "error", title: "Error", message: String(e.message || e) });
+    } finally {
+      setLoadingCreditLogs(false);
+    }
+  };
+
+  // Cuando entra a vistas admin, cargamos
+  useEffect(() => {
+    if (!me) return;
+    // mantener credits actualizados
+    authFetch("/api/credits/me")
+      .then(async (r) => {
+        if (!r.ok) return;
+        const data = await safeJson(r);
+        setMe((prev) => (prev ? { ...prev, credits: data.credits ?? prev.credits } : prev));
+      })
+      .catch(() => {});
+  }, [me, view]);
 
   useEffect(() => {
-    if (isAdmin) refreshAdmin();
-  }, [me]);
+    if (!me || !isAdmin) return;
+    if (view === "users") refreshUsers();
+    if (view === "logs") refreshLogs();
+    if (view === "creditlogs") refreshCreditLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, me?.id]);
 
-  /**
-   * =========================================================
-   *  USERS ACTIONS
-   * =========================================================
-   */
-  const createUser = async () => {
-    if (createLoading) return;
-    setCreateLoading(true);
+  /* ===========================
+     Consultar (generate + download)
+  ============================ */
+  const requirements = useMemo(() => {
+    if (type === "nss") return { curp: true, nss: false, hint: "Solo CURP · puede devolver 2 PDFs" };
+    if (type === "noderecho") return { curp: true, nss: false, hint: "Solo CURP (según proveedor)" };
+    if (type === "vigencia") return { curp: true, nss: true, hint: "CURP + NSS" };
+    return { curp: true, nss: true, hint: "CURP + NSS" }; // semanas
+  }, [type]);
+
+  const onPaste = async () => {
     try {
-      const res = await authFetch("/api/users", {
-        method: "POST",
-        body: JSON.stringify({
-          email: String(newUEmail).trim(),
-          password: String(newUPass),
-          role: newURole,
-        }),
-      });
-      const data = await safeJson(res);
-      if (!res.ok) {
-        showToast({
-          type: "error",
-          title: "No se pudo crear",
-          message: normalizeErrorMessage(data?.message || `HTTP ${res.status}`),
-        });
-        setCreateLoading(false);
-        return;
-      }
-      showToast({ type: "success", title: "Usuario creado", message: data?.user?.email || "" });
-      setCreateOpen(false);
-      setNewUEmail("");
-      setNewUPass("");
-      setNewURole("user");
-      await refreshAdmin();
-    } catch {
-      showToast({ type: "error", title: "Error", message: "No se pudo crear usuario." });
-    } finally {
-      setCreateLoading(false);
-    }
-  };
+      const text = await navigator.clipboard.readText();
+      const t = String(text || "").trim();
+      // Buscar CURP (18) y NSS (11) dentro del texto
+      const curpMatch = t.match(/[A-Z]{4}\d{6}[A-Z]{6}\d{2}/i);
+      const nssMatch = t.match(/\b\d{11}\b/);
 
-  const resetPassword = async (id) => {
-    try {
-      const res = await authFetch(`/api/users/${id}/reset-password`, { method: "POST" });
-      const data = await safeJson(res);
-      if (!res.ok) {
-        showToast({ type: "error", title: "Error", message: normalizeErrorMessage(data?.message) });
-        return;
-      }
-      showToast({
-        type: "success",
-        title: "Password reseteada",
-        message: `Nueva contraseña: ${data.newPassword}`,
-      });
-    } catch {
-      showToast({ type: "error", title: "Error", message: "No se pudo resetear password." });
-    }
-  };
-
-  const toggleDisabled = async (u) => {
-    try {
-      const res = await authFetch(`/api/users/${u.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ disabled: !u.disabled }),
-      });
-      const data = await safeJson(res);
-      if (!res.ok) {
-        showToast({ type: "error", title: "Error", message: normalizeErrorMessage(data?.message) });
-        return;
-      }
-      showToast({ type: "success", title: "Actualizado", message: "" });
-      await refreshAdmin();
-    } catch {
-      showToast({ type: "error", title: "Error", message: "No se pudo actualizar." });
-    }
-  };
-
-  const openCredits = (u) => {
-    setCreditsTarget(u);
-    setCreditsAmount(10);
-    setCreditsNote("");
-    setCreditsOpen(true);
-  };
-
-  const grantCredits = async () => {
-    if (!creditsTarget) return;
-    if (creditsLoading) return;
-    setCreditsLoading(true);
-    try {
-      const res = await authFetch("/api/credits/grant", {
-        method: "POST",
-        body: JSON.stringify({
-          userId: creditsTarget.id,
-          amount: Number(creditsAmount),
-          note: creditsNote,
-        }),
-      });
-      const data = await safeJson(res);
-      if (!res.ok) {
-        showToast({
-          type: "error",
-          title: "Error créditos",
-          message: normalizeErrorMessage(data?.message || `HTTP ${res.status}`),
-        });
-        setCreditsLoading(false);
-        return;
-      }
-      showToast({ type: "success", title: "Créditos actualizados", message: "" });
-      setCreditsOpen(false);
-      setCreditsTarget(null);
-      await refreshAdmin();
-    } catch {
-      showToast({ type: "error", title: "Error", message: "No se pudieron asignar créditos." });
-    } finally {
-      setCreditsLoading(false);
-    }
-  };
-
-  /**
-   * =========================================================
-   *  CONSULTAR
-   * =========================================================
-   */
-  const currentDoc = useMemo(() => DOC_TYPES.find((d) => d.key === type), [type]);
-
-  const pasteCurpNss = async () => {
-    try {
-      const t = await navigator.clipboard.readText();
-      const clean = String(t || "").trim();
-      // intenta detectar CURP y NSS en texto pegado
-      const curpMatch = clean.match(/[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]{2}/i);
-      const nssMatch = clean.match(/\b\d{11}\b/);
       if (curpMatch) setCurp(curpMatch[0].toUpperCase());
       if (nssMatch) setNss(nssMatch[0]);
-      showToast({ type: "success", title: "Pegado", message: "CURP/NSS detectado." });
+
+      showToast({ type: "info", title: "Pegado", message: "Se detectó CURP/NSS desde el portapapeles." });
     } catch {
-      showToast({ type: "error", title: "No se pudo pegar", message: "Tu navegador bloqueó el clipboard." });
+      showToast({ type: "warn", title: "No se pudo pegar", message: "Tu navegador bloqueó el portapapeles." });
     }
   };
 
   const generate = async () => {
-    if (generateLoading) return;
+    setToast(null);
 
-    const c = String(curp || "").trim().toUpperCase();
-    const n = String(nss || "").trim();
+    const cleanCurp = String(curp || "").trim().toUpperCase();
+    const cleanNss = String(nss || "").trim();
 
-    if (currentDoc?.needCurp && c.length < 10) {
-      showToast({ type: "error", title: "Falta CURP", message: "Captura una CURP válida." });
+    if (requirements.curp && cleanCurp.length < 10) {
+      showToast({ type: "error", title: "Falta CURP", message: "Ingresa una CURP válida." });
       return;
     }
-    if (currentDoc?.needNss && n.length !== 11) {
-      showToast({ type: "error", title: "Falta NSS", message: "Captura NSS (11 dígitos)." });
+    if (requirements.nss && cleanNss.length !== 11) {
+      showToast({ type: "error", title: "Falta NSS", message: "El NSS debe tener 11 dígitos." });
       return;
     }
 
-    setGenerateLoading(true);
+    setLoadingGenerate(true);
     setFiles([]);
 
     try {
       const res = await authFetch("/api/imss", {
         method: "POST",
-        body: JSON.stringify({
-          type,
-          curp: c,
-          nss: n || undefined,
-        }),
+        body: JSON.stringify({ type, curp: cleanCurp, nss: cleanNss }),
       });
+
       const data = await safeJson(res);
 
       if (!res.ok) {
-        showToast({
-          type: "error",
-          title: "Inconsistencia",
-          message: normalizeErrorMessage(data?.message || `HTTP ${res.status}`),
-        });
-        setGenerateLoading(false);
+        // Mensaje más “bonito” si el proveedor bloquea
+        const msg = data?.message || `HTTP ${res.status}`;
+        if (isWAFHtmlMessage(msg)) {
+          showToast({
+            type: "warn",
+            title: "Inconsistencia",
+            message:
+              "El proveedor externo bloqueó la solicitud (WAF). Intenta con otro CURP/NSS, espera unos minutos o vuelve a intentar.",
+          });
+        } else {
+          showToast({ type: "error", title: "Inconsistencia", message: clampStr(msg, 220) });
+        }
         return;
       }
 
-      setFiles(Array.isArray(data.files) ? data.files : []);
-      showToast({ type: "success", title: "PDF listo", message: "Descarga disponible." });
+      // Actualizar credits
+      authFetch("/api/credits/me")
+        .then(async (r) => {
+          if (!r.ok) return;
+          const c = await safeJson(r);
+          setMe((prev) => (prev ? { ...prev, credits: c.credits ?? prev.credits } : prev));
+          localStorage.setItem("me", JSON.stringify({ ...(me || {}), credits: c.credits }));
+        })
+        .catch(() => {});
 
-      // refresca logs (admin) para que lo veas de inmediato
-      if (isAdmin) {
-        const rLogs = await authFetch("/api/logs");
-        const dLogs = await safeJson(rLogs);
-        const listLogs = Array.isArray(dLogs) ? dLogs : dLogs.logs || dLogs.items || [];
-        setLogs(listLogs);
-      }
+      setFiles(data.files || []);
+      showToast({ type: "success", title: "Documento generado", message: "PDF listo para descargar." });
     } catch {
-      showToast({
-        type: "error",
-        title: "Error de red",
-        message: "No se pudo conectar al backend.",
-      });
+      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar al backend." });
     } finally {
-      setGenerateLoading(false);
+      setLoadingGenerate(false);
     }
   };
 
-  const download = async (fileId, suggestedName) => {
+  const download = async (fileId, filename) => {
+    if (!fileId) return;
+
     setDownloading((p) => ({ ...p, [fileId]: true }));
     try {
-      const r = await fetch(`${BACKEND_URL}/api/download/${fileId}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-      });
+      const r = await authFetch(`/api/download/${fileId}`);
       if (!r.ok) {
-        const t = await r.text();
-        showToast({
-          type: "error",
-          title: "No se pudo descargar",
-          message: normalizeErrorMessage(t || `HTTP ${r.status}`),
-        });
+        const data = await safeJson(r);
+        showToast({ type: "error", title: "Error", message: data.message || "No se pudo descargar." });
         return;
       }
-      const b = await r.blob();
+
+      const blob = await r.blob();
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(b);
-      a.download = suggestedName || `DocuExpress_${fileId}.pdf`;
-      document.body.appendChild(a);
+      a.href = URL.createObjectURL(blob);
+      a.download = filename || `DocuExpress_${fileId}.pdf`;
       a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+      URL.revokeObjectURL(a.href);
     } catch {
-      showToast({ type: "error", title: "Error", message: "Fallo la descarga." });
+      showToast({ type: "error", title: "Error", message: "No se pudo descargar el archivo." });
     } finally {
       setDownloading((p) => {
         const copy = { ...p };
@@ -837,1049 +639,1276 @@ export default function App() {
     }
   };
 
-  /**
-   * =========================================================
-   *  LOGS FILTERING (frontend)
-   * =========================================================
-   */
-  const filteredLogs = useMemo(() => {
-    let list = Array.isArray(logs) ? [...logs] : [];
+  /* ===========================
+     Admin actions
+  ============================ */
+  const openCreateUser = () => {
+    setCreateOpen(true);
+    setNewUserEmail("");
+    setNewUserPass("");
+    setNewUserRole("user");
+  };
 
-    // aplica filtros cuando presionas “Aplicar filtros”
-    // (para que no filtre a cada tecleo si no quieres)
-    // usamos applyLogFiltersFlag solo para “recalcular”
-    // eslint-disable-next-line
-    applyLogFiltersFlag;
+  const createUser = async () => {
+    setCreatingUser(true);
+    try {
+      const r = await authFetch("/api/users", {
+        method: "POST",
+        body: JSON.stringify({
+          email: newUserEmail.trim(),
+          password: newUserPass,
+          role: newUserRole,
+        }),
+      });
 
-    // type
-    if (logType !== "todos") {
-      list = list.filter((l) => String(l.type || "").toLowerCase() === logType);
+      const data = await safeJson(r);
+      if (!r.ok) {
+        showToast({ type: "error", title: "Error", message: data.message || "No se pudo crear usuario." });
+        return;
+      }
+
+      showToast({ type: "success", title: "Usuario creado", message: data?.user?.email || "Listo." });
+      setCreateOpen(false);
+      refreshUsers();
+    } catch {
+      showToast({ type: "error", title: "Error", message: "No se pudo crear usuario." });
+    } finally {
+      setCreatingUser(false);
     }
+  };
 
-    // email
-    if (String(logEmail || "").trim()) {
-      const q = String(logEmail).trim().toLowerCase();
-      list = list.filter((l) => String(l.email || "").toLowerCase().includes(q));
+  const resetPassword = async (userId) => {
+    try {
+      const r = await authFetch(`/api/users/${userId}/reset-password`, { method: "POST" });
+      const data = await safeJson(r);
+      if (!r.ok) {
+        showToast({ type: "error", title: "Error", message: data.message || "No se pudo resetear." });
+        return;
+      }
+
+      showToast({
+        type: "success",
+        title: "Password reseteada",
+        message: `Nueva contraseña: ${data.newPassword}`,
+      });
+      refreshUsers();
+    } catch {
+      showToast({ type: "error", title: "Error", message: "No se pudo resetear password." });
+    }
+  };
+
+  const toggleDisable = async (u) => {
+    try {
+      const r = await authFetch(`/api/users/${u.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ disabled: !u.disabled }),
+      });
+      const data = await safeJson(r);
+      if (!r.ok) {
+        showToast({ type: "error", title: "Error", message: data.message || "No se pudo actualizar." });
+        return;
+      }
+      refreshUsers();
+    } catch {
+      showToast({ type: "error", title: "Error", message: "No se pudo actualizar." });
+    }
+  };
+
+  const openCredits = (u) => {
+    setCreditTarget(u);
+    setCreditAmount(10);
+    setCreditNote("");
+    setCreditsOpen(true);
+  };
+
+  const grantCredits = async () => {
+    if (!creditTarget) return;
+    setSavingCredits(true);
+
+    try {
+      const r = await authFetch("/api/credits/grant", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: creditTarget.id,
+          amount: Number(creditAmount),
+          note: String(creditNote || "").slice(0, 200),
+        }),
+      });
+      const data = await safeJson(r);
+      if (!r.ok) {
+        showToast({ type: "error", title: "Error", message: data.message || "No se pudo asignar créditos." });
+        return;
+      }
+
+      showToast({ type: "success", title: "Créditos actualizados", message: creditTarget.email });
+      setCreditsOpen(false);
+      refreshUsers();
+      if (view === "creditlogs") refreshCreditLogs();
+    } catch {
+      showToast({ type: "error", title: "Error", message: "No se pudo asignar créditos." });
+    } finally {
+      setSavingCredits(false);
+    }
+  };
+
+  /* ===========================
+     Derived data for UI
+  ============================ */
+  const filteredUsers = useMemo(() => {
+    const q = normalizeEmail(userSearch);
+    if (!q) return users || [];
+    return (users || []).filter((u) => normalizeEmail(u.email).includes(q));
+  }, [users, userSearch]);
+
+  const filteredLogs = useMemo(() => {
+    let items = Array.isArray(logs) ? logs.slice() : [];
+
+    // tipo
+    if (logType !== "all") {
+      items = items.filter((l) => String(l.type) === logType);
     }
 
     // rango
-    const now = Date.now();
-    const ms = {
-      "24h": 24 * 60 * 60 * 1000,
-      "7d": 7 * 24 * 60 * 60 * 1000,
-      "30d": 30 * 24 * 60 * 60 * 1000,
-      all: Infinity,
-    }[logRange];
-
-    if (ms !== Infinity) {
-      list = list.filter((l) => {
-        const ts = new Date(l.createdAt || l.ts || l.date || 0).getTime();
-        return Number.isFinite(ts) && now - ts <= ms;
+    const days = Number(logRange);
+    if (Number.isFinite(days) && days > 0) {
+      const from = subtractDays(new Date(), days).getTime();
+      items = items.filter((l) => {
+        const t = new Date(l.createdAt || l.date || l.ts || 0).getTime();
+        return t >= from;
       });
     }
 
+    // email
+    const q = normalizeEmail(logEmail);
+    if (q) {
+      items = items.filter((l) => normalizeEmail(l.email || l.userEmail).includes(q));
+    }
+
     // newest first
-    list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-    return list;
-  }, [logs, applyLogFiltersFlag, logType, logEmail, logRange]);
+    items.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    return items;
+  }, [logs, logType, logRange, logEmail]);
+
+  const filteredCreditLogs = useMemo(() => {
+    let items = Array.isArray(creditLogs) ? creditLogs.slice() : [];
+    const q = normalizeEmail(creditEmail);
+    if (q) {
+      items = items.filter(
+        (l) => normalizeEmail(l.userEmail).includes(q) || normalizeEmail(l.adminEmail).includes(q)
+      );
+    }
+    return items;
+  }, [creditLogs, creditEmail]);
 
   const dashboardStats = useMemo(() => {
-    const uCount = users?.length || 0;
-    const totalCredits = (users || []).reduce((s, u) => s + Number(u.credits || 0), 0);
+    const totalUsers = (users || []).length;
+    const totalCredits = (users || []).reduce((acc, u) => acc + Number(u.credits || 0), 0);
 
-    const last24h = (logs || []).filter((l) => {
-      const ts = new Date(l.createdAt || 0).getTime();
-      return Date.now() - ts <= 24 * 60 * 60 * 1000;
-    });
+    const last24 = subtractDays(new Date(), 1).getTime();
+    const logs24 = (Array.isArray(logs) ? logs : []).filter((l) => new Date(l.createdAt || 0).getTime() >= last24);
 
-    const top = {};
-    for (const l of last24h) {
-      const t = String(l.type || "otro").toLowerCase();
-      top[t] = (top[t] || 0) + 1;
+    const byType = {};
+    for (const l of logs24) {
+      const t = String(l.type || "otro");
+      byType[t] = (byType[t] || 0) + 1;
     }
-    const topList = Object.entries(top)
+
+    const top = Object.entries(byType)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6);
 
-    return { uCount, totalCredits, last24hCount: last24h.length, topList };
+    return { totalUsers, totalCredits, logs24Count: logs24.length, top };
   }, [users, logs]);
 
-  /**
-   * =========================================================
-   *  LAYOUT
-   * =========================================================
-   */
-  const PageShell = ({ children }) => {
+  /* ===========================
+     UI: login screen
+  ============================ */
+  if (!me) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: ui.bg,
-          display: "grid",
-          gridTemplateColumns: "320px 1fr",
-          gap: 18,
-          padding: 18,
-        }}
-      >
-        {/* Sidebar */}
-        <div style={{ position: "sticky", top: 18, alignSelf: "start" }}>
-          <div
-            style={{
-              background: ui.card,
-              border: `1px solid ${ui.border}`,
-              borderRadius: ui.radius,
-              boxShadow: ui.shadow2,
-              padding: 18,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontSize: 24, fontWeight: 1000, color: ui.text }}>
-                Docu<span style={{ color: ui.primary }}>Express</span>
+      <div style={styles.page}>
+        <div style={{ ...styles.shell, gridTemplateColumns: "420px 1fr" }}>
+          <div style={styles.sidebarLogin}>
+            <div style={styles.brandRow}>
+              <div style={styles.brand}>
+                <span style={{ fontWeight: 900 }}>Docu</span>
+                <span style={{ fontWeight: 900, color: "#4f46e5" }}>Express</span>
               </div>
-              <Pill color="gray">SaaS</Pill>
+              <Pill tone="purple">SaaS</Pill>
             </div>
 
-            <div style={{ height: 14 }} />
+            <div style={styles.loginCard}>
+              <div style={{ fontSize: 20, fontWeight: 900, marginBottom: 14 }}>Iniciar sesión</div>
 
-            {!isLogged ? (
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 1000, color: ui.text }}>
-                  Iniciar sesión
-                </div>
-                <div style={{ height: 10 }} />
-                <div style={{ display: "grid", gap: 12 }}>
-                  <Input
-                    placeholder="admin@docuexpress.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email"
-                  />
-                  <Input
-                    placeholder="Contraseña"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="current-password"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") onLogin();
-                    }}
-                  />
-                  <Button
-                    variant="primary"
-                    onClick={onLogin}
-                    loading={loginLoading}
-                    style={{ width: "100%" }}
-                  >
-                    Iniciar sesión
-                  </Button>
-
-                  <div
-                    style={{
-                      padding: 12,
-                      borderRadius: 14,
-                      border: `1px solid ${ui.border}`,
-                      background: "#FBFCFF",
-                      color: ui.mut,
-                      fontSize: 12,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    <b style={{ color: ui.text }}>Demo:</b>
-                    <br />
-                    Admin: admin@docuexpress.com / Admin123!
-                    <br />
-                    Cliente: cliente@docuexpress.com / Cliente123!
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <div style={{ fontSize: 12, color: ui.mut, fontWeight: 900 }}>
-                  Sesión
-                </div>
-                <div style={{ fontSize: 15, fontWeight: 1000, color: ui.text }}>
-                  {me.email}
-                </div>
-                <div style={{ height: 10 }} />
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <Pill color={isAdmin ? "blue" : "gray"}>{isAdmin ? "Admin" : "User"}</Pill>
-                  <Pill color="blue">{Number(me.credits || 0)} créditos</Pill>
-                  {isSuper && <Pill color="purple">Super</Pill>}
-                </div>
-
-                <div style={{ height: 14 }} />
-                <Button variant="ghost" onClick={logout} style={{ width: "100%" }}>
-                  Cerrar sesión
+              <div style={{ display: "grid", gap: 12 }}>
+                <Input
+                  label="Correo"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="correo@docuexpress.com"
+                  autoComplete="username"
+                  right={<span style={{ opacity: 0.7 }}>@</span>}
+                />
+                <Input
+                  label="Contraseña"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Tu contraseña"
+                  type="password"
+                  autoComplete="current-password"
+                  right={<Icon name="key" />}
+                />
+                <Button
+                  variant="primary"
+                  onClick={onLogin}
+                  disabled={loadingLogin || !email || !password}
+                  leftIcon={loadingLogin ? <span style={styles.spinner} /> : null}
+                  style={{ width: "100%", height: 48, borderRadius: 14 }}
+                >
+                  {loadingLogin ? "Entrando…" : "Iniciar sesión"}
                 </Button>
               </div>
-            )}
 
-            <div style={{ height: 16 }} />
-
-            {/* Menú */}
-            <div style={{ fontSize: 12, color: ui.mut, fontWeight: 1000 }}>Menú</div>
-            <div style={{ height: 10 }} />
-
-            <div style={{ display: "grid", gap: 10 }}>
-              <SideBtn
-                active={view === "consultar"}
-                onClick={() => {
-                  setView("consultar");
-                  setStep("cards");
-                }}
-                icon="🔎"
-                label="CONSULTAR"
-              />
-              {isAdmin && (
-                <>
-                  <SideBtn
-                    active={view === "dashboard"}
-                    onClick={() => setView("dashboard")}
-                    icon="📊"
-                    label="Dashboard"
-                  />
-                  <SideBtn
-                    active={view === "users"}
-                    onClick={() => setView("users")}
-                    icon="👤"
-                    label="Usuarios"
-                  />
-                  <SideBtn
-                    active={view === "logs"}
-                    onClick={() => setView("logs")}
-                    icon="🧾"
-                    label="Logs de consultas"
-                  />
-                  <SideBtn
-                    active={view === "creditlogs"}
-                    onClick={() => setView("creditlogs")}
-                    icon="💳"
-                    label="Logs de créditos"
-                  />
-                  <Button
-                    variant="soft"
-                    onClick={() => setCreateOpen(true)}
-                    style={{ width: "100%", height: 46, justifyContent: "center" }}
-                  >
-                    <Icon>➕</Icon> Crear usuario
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={refreshAdmin}
-                    style={{ width: "100%", height: 46, justifyContent: "center" }}
-                  >
-                    <Icon>🔄</Icon> Actualizar
-                  </Button>
-                </>
-              )}
+              <div style={{ marginTop: 14, color: "#64748b", fontSize: 13 }}>
+                Tip: si quieres usar el <b>super admin</b>, crea ese usuario en la DB (abajo te digo cómo).
+              </div>
             </div>
+          </div>
 
-            <div style={{ height: 14 }} />
-            <div style={{ fontSize: 12, color: ui.mut }}>
-              Backend:{" "}
-              <span style={{ color: ui.text, fontWeight: 900 }}>{BACKEND_URL}</span>
+          <div style={styles.loginHero}>
+            <div style={styles.heroInner}>
+              <div style={{ fontWeight: 900, fontSize: 44, letterSpacing: -1 }}>
+                Panel de documentos IMSS, <span style={{ color: "#4f46e5" }}>premium</span>.
+              </div>
+              <div style={{ marginTop: 12, color: "#64748b", fontSize: 16, lineHeight: 1.6 }}>
+                Consulta, controla créditos, revisa logs y descarga PDFs con un flujo limpio para tu equipo.
+              </div>
+
+              <div style={{ marginTop: 26, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                <div style={styles.heroBox}>
+                  <div style={styles.heroBoxTitle}>✅ Descargas con estado</div>
+                  <div style={styles.heroBoxText}>Botón PDF / Descargar y loading por archivo.</div>
+                </div>
+                <div style={styles.heroBox}>
+                  <div style={styles.heroBoxTitle}>🧩 Admin / Superadmin</div>
+                  <div style={styles.heroBoxText}>Listo para crecer a multi-admin por scopes.</div>
+                </div>
+                <div style={styles.heroBox}>
+                  <div style={styles.heroBoxTitle}>🔎 Filtros de logs</div>
+                  <div style={styles.heroBoxText}>Tipo, rango rápido y búsqueda por email.</div>
+                </div>
+                <div style={styles.heroBox}>
+                  <div style={styles.heroBoxTitle}>🧼 UI limpia</div>
+                  <div style={styles.heroBoxText}>Sin mostrar URL del backend ni detalles sensibles.</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Main */}
-        <div style={{ padding: "4px 10px 40px 10px" }}>{children}</div>
+        <Toast toast={toast} onClose={() => setToast(null)} />
       </div>
-    );
-  };
-
-  function SideBtn({ active, onClick, icon, label }) {
-    return (
-      <button
-        onClick={onClick}
-        style={{
-          height: 54,
-          borderRadius: 16,
-          border: `1px solid ${ui.border}`,
-          background: active ? `linear-gradient(90deg, ${ui.primary}, ${ui.primary2})` : "#fff",
-          color: active ? "#fff" : ui.text,
-          fontWeight: 1000,
-          cursor: "pointer",
-          padding: "0 14px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          boxShadow: active ? "0 18px 38px rgba(79,70,229,.18)" : "0 1px 0 rgba(15,23,42,.04)",
-        }}
-      >
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-          <span style={{ width: 24, textAlign: "center" }}>{icon}</span>
-          {label}
-        </span>
-        <span style={{ opacity: active ? 1 : 0.35 }}>●</span>
-      </button>
     );
   }
 
-  /**
-   * =========================================================
-   *  MODALS (crear usuario / créditos)
-   * =========================================================
-   */
-  const Modal = ({ open, title, children, onClose, width = 520 }) => {
-    if (!open) return null;
-    return (
-      <div
-        style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(15,23,42,.35)",
-          display: "grid",
-          placeItems: "center",
-          zIndex: 9999,
-          padding: 18,
-        }}
-        onMouseDown={(e) => {
-          if (e.target === e.currentTarget) onClose();
-        }}
-      >
-        <div
-          style={{
-            width: "100%",
-            maxWidth: width,
-            background: "#fff",
-            borderRadius: 18,
-            border: `1px solid ${ui.border}`,
-            boxShadow: ui.shadow,
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              padding: 16,
-              borderBottom: `1px solid ${ui.border}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 10,
-            }}
-          >
-            <div style={{ fontWeight: 1000 }}>{title}</div>
-            <Button variant="ghost" onClick={onClose} style={{ height: 38 }}>
-              Cerrar
-            </Button>
+  /* ===========================
+     Main layout
+  ============================ */
+  const menu = [
+    { id: "consultar", label: "CONSULTAR", icon: <Icon name="search" />, adminOnly: false },
+    { id: "dashboard", label: "Dashboard", icon: <Icon name="dashboard" />, adminOnly: true },
+    { id: "users", label: "Usuarios", icon: <Icon name="users" />, adminOnly: true },
+    { id: "logs", label: "Logs de consultas", icon: <Icon name="file" />, adminOnly: true },
+    { id: "creditlogs", label: "Logs de créditos", icon: <Icon name="credit" />, adminOnly: true },
+  ];
+
+  const canSee = (m) => (!m.adminOnly ? true : isAdmin);
+
+  return (
+    <div style={styles.page}>
+      <div style={styles.shell}>
+        {/* Sidebar */}
+        <aside style={styles.sidebar}>
+          <div style={styles.brandRow}>
+            <div style={styles.brand}>
+              <span style={{ fontWeight: 900 }}>Docu</span>
+              <span style={{ fontWeight: 900, color: "#4f46e5" }}>Express</span>
+            </div>
+            <Pill tone="purple">SaaS</Pill>
           </div>
-          <div style={{ padding: 16 }}>{children}</div>
-        </div>
-      </div>
-    );
-  };
 
-  /**
-   * =========================================================
-   *  RENDER PAGES
-   * =========================================================
-   */
-  const PageHeader = ({ kicker = "DocuExpress", title, subtitle, right }) => (
-    <div style={{ padding: "10px 6px 18px 6px" }}>
-      <div style={{ fontSize: 12, color: ui.mut, fontWeight: 900 }}>{kicker}</div>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-        <div>
-          <div style={{ fontSize: 34, fontWeight: 1000, letterSpacing: -0.6, color: ui.text }}>
-            {title}
+          <div style={styles.sessionCard}>
+            <div style={{ color: "#64748b", fontSize: 12, marginBottom: 6 }}>Sesión</div>
+            <div style={{ fontWeight: 900 }}>{me.email}</div>
+
+            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Pill tone={isSuper ? "purple" : "blue"}>{isSuper ? "Superadmin" : me.role}</Pill>
+              <Pill tone="blue">{Number(me.credits ?? 0)} créditos</Pill>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <Button variant="soft" onClick={logout} leftIcon={<Icon name="logout" />} style={{ width: "100%" }}>
+                Cerrar sesión
+              </Button>
+            </div>
           </div>
-          {subtitle && <div style={{ marginTop: 8, color: ui.mut }}>{subtitle}</div>}
-        </div>
-        {right}
-      </div>
-    </div>
-  );
 
-  const ConsultarPage = () => {
-    return (
-      <div>
-        <PageHeader
-          title="Consultar"
-          subtitle="Genera documentos del IMSS. Los PDFs se guardan por 24 horas y se descargan desde tu panel."
-          right={<Pill color="blue">PDFs duran 24h</Pill>}
-        />
+          <div style={{ marginTop: 14, color: "#64748b", fontWeight: 800, fontSize: 12 }}>Menú</div>
 
-        <Card>
-          <CardHeader
-            title="CONSULTAR"
-            subtitle="Elige el trámite, captura datos y genera el PDF."
-            right={<Pill color="blue">PDFs duran 24h</Pill>}
-          />
-
-          {step === "cards" ? (
-            <div style={{ padding: 18 }}>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 16,
-                }}
-              >
-                {DOC_TYPES.map((d) => (
-                  <div
-                    key={d.key}
-                    onClick={() => {
-                      setType(d.key);
-                      setStep("form");
+          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+            {menu.filter(canSee).map((m) => {
+              const active = view === m.id;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => {
+                    setView(m.id);
+                    if (m.id === "consultar") {
+                      setConsultStep("cards");
                       setFiles([]);
-                      setCurp("");
-                      setNss("");
-                    }}
-                    style={{
-                      border: `1px solid ${ui.border}`,
-                      borderRadius: 16,
-                      padding: 16,
-                      background: "#fff",
-                      cursor: "pointer",
-                      boxShadow: "0 1px 0 rgba(15,23,42,.04)",
-                    }}
-                  >
-                    <div style={{ fontWeight: 1000, color: ui.text, fontSize: 15 }}>
-                      {d.title}
-                    </div>
-                    <div style={{ color: ui.mut, fontSize: 13, marginTop: 6 }}>
-                      {d.desc}
-                    </div>
-                    <div style={{ marginTop: 12 }}>
-                      <Pill color="gray">{d.pill}</Pill>
-                    </div>
-                  </div>
-                ))}
+                    }
+                  }}
+                  style={{
+                    ...styles.menuBtn,
+                    ...(active ? styles.menuBtnActive : {}),
+                  }}
+                >
+                  <span style={{ display: "inline-flex", marginRight: 10 }}>{m.icon}</span>
+                  <span style={{ fontWeight: 900 }}>{m.label}</span>
+                  <span style={styles.menuDot} />
+                </button>
+              );
+            })}
+          </div>
+
+          {isAdmin ? (
+            <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+              <Button variant="soft" onClick={openCreateUser} leftIcon={<Icon name="plus" />}>
+                Crear usuario
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (view === "users") refreshUsers();
+                  if (view === "logs") refreshLogs();
+                  if (view === "creditlogs") refreshCreditLogs();
+                  if (view === "dashboard") {
+                    refreshUsers();
+                    refreshLogs();
+                  }
+                }}
+                leftIcon={<Icon name="refresh" />}
+              >
+                Actualizar
+              </Button>
+            </div>
+          ) : null}
+        </aside>
+
+        {/* Content */}
+        <main style={styles.main}>
+          {/* Top bar */}
+          <div style={styles.topBar}>
+            <div>
+              <div style={styles.breadcrumb}>DocuExpress</div>
+              <div style={styles.pageTitle}>
+                {view === "consultar"
+                  ? "Consultar"
+                  : view === "dashboard"
+                  ? "Dashboard"
+                  : view === "users"
+                  ? "Usuarios"
+                  : view === "logs"
+                  ? "Logs de consultas"
+                  : "Logs de créditos"}
+              </div>
+              <div style={styles.pageSub}>
+                {view === "consultar"
+                  ? "Genera documentos del IMSS. Los PDFs se guardan por 24 horas y se descargan desde tu panel."
+                  : view === "dashboard"
+                  ? "Resumen rápido de tu operación."
+                  : view === "users"
+                  ? "Gestiona usuarios, resetea password y asigna créditos."
+                  : view === "logs"
+                  ? "Filtra por tipo, rango y email."
+                  : "Historial de otorgamientos y ajustes de créditos."}
               </div>
             </div>
-          ) : (
-            <div style={{ padding: 18 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                <div style={{ color: ui.mut, fontSize: 13 }}>
-                  Trámite: <b style={{ color: ui.text }}>{currentDoc?.title}</b>
+
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <Pill tone="purple">PDFs duran 24h</Pill>
+            </div>
+          </div>
+
+          {/* Views */}
+          {view === "consultar" && (
+            <Card
+              title="CONSULTAR"
+              subtitle="Elige el trámite, captura datos y genera el PDF."
+              right={<Pill tone="purple">PDFs duran 24h</Pill>}
+            >
+              {consultStep === "cards" ? (
+                <div style={styles.grid2}>
+                  <div style={styles.optionCard} onClick={() => { setType("semanas"); setConsultStep("form"); }}>
+                    <div style={styles.optionTitle}>Semanas cotizadas</div>
+                    <div style={styles.optionSub}>Constancia de semanas cotizadas en el IMSS.</div>
+                    <div style={{ marginTop: 10 }}><Pill>CURP + NSS</Pill></div>
+                  </div>
+
+                  <div style={styles.optionCard} onClick={() => { setType("nss"); setConsultStep("form"); }}>
+                    <div style={styles.optionTitle}>Asignación / Localización NSS</div>
+                    <div style={styles.optionSub}>Genera documentos de NSS (puede devolver 2 PDFs).</div>
+                    <div style={{ marginTop: 10 }}><Pill>Solo CURP · 2 PDFs</Pill></div>
+                  </div>
+
+                  <div style={styles.optionCard} onClick={() => { setType("vigencia"); setConsultStep("form"); }}>
+                    <div style={styles.optionTitle}>Vigencia de derechos</div>
+                    <div style={styles.optionSub}>Constancia de vigencia de derechos.</div>
+                    <div style={{ marginTop: 10 }}><Pill>CURP + NSS</Pill></div>
+                  </div>
+
+                  <div style={styles.optionCard} onClick={() => { setType("noderecho"); setConsultStep("form"); }}>
+                    <div style={styles.optionTitle}>No derechohabiencia</div>
+                    <div style={styles.optionSub}>Constancia de no derecho al servicio médico.</div>
+                    <div style={{ marginTop: 10 }}><Pill>Solo CURP</Pill></div>
+                  </div>
                 </div>
-                <Button variant="ghost" onClick={() => setStep("cards")} style={{ height: 44 }}>
-                  ← Atrás
-                </Button>
+              ) : (
+                <div style={{ display: "grid", gap: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ color: "#64748b", fontWeight: 700 }}>
+                      Trámite:{" "}
+                      <span style={{ color: "#0f172a" }}>
+                        {type === "semanas"
+                          ? "Semanas cotizadas"
+                          : type === "nss"
+                          ? "Asignación / Localización NSS"
+                          : type === "vigencia"
+                          ? "Vigencia de derechos"
+                          : "No derechohabiencia"}
+                      </span>
+                      <span style={{ marginLeft: 10 }}>
+                        <Pill tone="blue">{requirements.hint}</Pill>
+                      </span>
+                    </div>
+
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setConsultStep("cards");
+                        setFiles([]);
+                        setCurp("");
+                        setNss("");
+                      }}
+                    >
+                      ← Atrás
+                    </Button>
+                  </div>
+
+                  <div style={styles.formRow}>
+                    <Input
+                      label="CURP"
+                      value={curp}
+                      onChange={(e) => setCurp(e.target.value.toUpperCase())}
+                      placeholder="Ej: GUCJ030206HPLRRVA1"
+                    />
+                    <Input
+                      label={requirements.nss ? "NSS (obligatorio)" : "NSS (opcional)"}
+                      value={nss}
+                      onChange={(e) => setNss(e.target.value)}
+                      placeholder={requirements.nss ? "11 dígitos" : "11 dígitos (si aplica)"}
+                    />
+                  </div>
+
+                  <div style={styles.formRow}>
+                    <Button variant="soft" onClick={onPaste} leftIcon={<span style={{ fontSize: 16 }}>📋</span>}>
+                      Pegar CURP/NSS
+                    </Button>
+
+                    <Button
+                      variant="primary"
+                      onClick={generate}
+                      disabled={loadingGenerate}
+                      leftIcon={loadingGenerate ? <span style={styles.spinner} /> : <Icon name="file" />}
+                      style={{ justifyContent: "center" }}
+                    >
+                      {loadingGenerate ? "Generando…" : "Generar documento"}
+                    </Button>
+                  </div>
+
+                  <div style={{ color: "#64748b", fontSize: 13 }}>
+                    Aquí aparecerán los PDFs para descargar cuando generes un documento.
+                  </div>
+
+                  {/* Files */}
+                  {files?.length ? (
+                    <div style={{ display: "grid", gap: 10, marginTop: 4 }}>
+                      {files.map((f) => {
+                        const label = fileLabelFromType(type);
+                        // ✅ nombre “bonito” sugerido (frontend): TIPO_CURP.pdf
+                        // (Para quitar “principal” real, eso se hace en backend al crear el filename)
+                        const niceName = `${label}_${String(curp || "").trim().toUpperCase()}.pdf`;
+
+                        return (
+                          <div key={f.fileId} style={styles.fileRow}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                              <div style={styles.fileIcon}>PDF</div>
+                              <div>
+                                <div style={{ fontWeight: 900, color: "#0f172a" }}>
+                                  {clampStr(f.filename || niceName, 70)}
+                                </div>
+                                <div style={{ fontSize: 12, color: "#64748b" }}>
+                                  {f.expiresAt ? `Expira: ${new Date(f.expiresAt).toISOString()}` : "Disponible para descargar"}
+                                </div>
+                              </div>
+                            </div>
+
+                            <Button
+                              variant="soft"
+                              onClick={() => download(f.fileId, niceName)}
+                              disabled={!!downloading[f.fileId]}
+                              leftIcon={downloading[f.fileId] ? <span style={styles.spinner} /> : <Icon name="download" />}
+                            >
+                              {downloading[f.fileId] ? "Descargando…" : "Descargar"}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </Card>
+          )}
+
+          {view === "dashboard" && isAdmin && (
+            <div style={{ display: "grid", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 14 }}>
+                <StatCard title="Usuarios" value={dashboardStats.totalUsers || "—"} icon={<Icon name="users" />} />
+                <StatCard title="Créditos totales" value={dashboardStats.totalCredits || "—"} icon={<Icon name="credit" />} />
+                <StatCard title="Consultas 24h" value={dashboardStats.logs24Count || "—"} icon={<Icon name="file" />} />
+                <StatCard title="Rol" value={isSuper ? "Superadmin" : "Admin"} icon={<Icon name="dashboard" />} />
               </div>
 
-              <div style={{ height: 14 }} />
+              <Card
+                title="Top trámites (24h)"
+                subtitle="Los trámites más utilizados en las últimas 24 horas."
+                right={
+                  <Button
+                    variant="soft"
+                    onClick={() => {
+                      refreshUsers();
+                      refreshLogs();
+                    }}
+                    leftIcon={<Icon name="refresh" />}
+                  >
+                    Actualizar
+                  </Button>
+                }
+              >
+                {dashboardStats.top?.length ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {dashboardStats.top.map(([t, c]) => (
+                      <div key={t} style={styles.topRow}>
+                        <div style={{ fontWeight: 900 }}>{t}</div>
+                        <Pill tone="blue">{c}</Pill>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ color: "#64748b" }}>Sin datos aún (haz algunas consultas).</div>
+                )}
+              </Card>
+            </div>
+          )}
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <Input
-                  label="CURP"
-                  placeholder="Ejem: GUCJ030206HPLRRVA1"
-                  value={curp}
-                  onChange={(e) => setCurp(e.target.value.toUpperCase())}
+          {view === "users" && isAdmin && (
+            <Card
+              title="Usuarios"
+              subtitle={isSuper ? "Como superadmin puedes ver todo." : "Como admin solo ves tus usuarios (si backend está scoping)."}
+              right={
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <Input
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    placeholder="Buscar email…"
+                    right={<Icon name="search" />}
+                  />
+                  <Button variant="ghost" onClick={refreshUsers} leftIcon={<Icon name="refresh" />} disabled={loadingUsers}>
+                    {loadingUsers ? "…" : ""}
+                  </Button>
+                  <Button variant="primary" onClick={openCreateUser} leftIcon={<Icon name="plus" />}>
+                    Crear
+                  </Button>
+                </div>
+              }
+            >
+              {loadingUsers ? (
+                <div style={{ color: "#64748b" }}>Cargando…</div>
+              ) : filteredUsers?.length ? (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {filteredUsers.map((u) => (
+                    <div key={u.id} style={styles.userRow}>
+                      <div>
+                        <div style={{ fontWeight: 900 }}>{u.email}</div>
+                        <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <Pill tone={u.role === "admin" ? "purple" : "blue"}>{u.role}</Pill>
+                          <Pill tone={u.disabled ? "red" : "green"}>{u.disabled ? "Deshabilitado" : "Activo"}</Pill>
+                          <Pill>Créditos: {u.credits ?? 0}</Pill>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        <Button variant="soft" onClick={() => openCredits(u)} leftIcon={<Icon name="credit" />}>
+                          Créditos
+                        </Button>
+                        <Button variant="soft" onClick={() => resetPassword(u.id)} leftIcon={<Icon name="key" />}>
+                          Reset
+                        </Button>
+                        <Button
+                          variant={u.disabled ? "soft" : "danger"}
+                          onClick={() => toggleDisable(u)}
+                        >
+                          {u.disabled ? "Habilitar" : "Deshabilitar"}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ color: "#64748b" }}>Sin usuarios.</div>
+              )}
+            </Card>
+          )}
+
+          {view === "logs" && isAdmin && (
+            <Card
+              title="Consultas"
+              subtitle="Logs globales (con scope por rol)."
+              right={
+                <div style={{ display: "flex", gap: 10 }}>
+                  <Button variant="soft" onClick={refreshLogs} leftIcon={<Icon name="refresh" />} disabled={loadingLogs}>
+                    Refrescar
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setLogType("all");
+                      setLogRange("7");
+                      setLogEmail("");
+                    }}
+                  >
+                    Limpiar
+                  </Button>
+                </div>
+              }
+            >
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                <Select
+                  label="Tipo"
+                  value={logType}
+                  onChange={(e) => setLogType(e.target.value)}
+                  options={[
+                    { value: "all", label: "Todos" },
+                    { value: "semanas", label: "semanas" },
+                    { value: "nss", label: "nss" },
+                    { value: "vigencia", label: "vigencia" },
+                    { value: "noderecho", label: "noderecho" },
+                  ]}
+                />
+                <Select
+                  label="Rango rápido"
+                  value={logRange}
+                  onChange={(e) => setLogRange(e.target.value)}
+                  options={[
+                    { value: "1", label: "Últimas 24h" },
+                    { value: "7", label: "Últimos 7 días" },
+                    { value: "30", label: "Últimos 30 días" },
+                  ]}
                 />
                 <Input
-                  label={currentDoc?.needNss ? "NSS (obligatorio)" : "NSS (opcional)"}
-                  placeholder={currentDoc?.needNss ? "11 dígitos" : "11 dígitos (si aplica)"}
-                  value={nss}
-                  onChange={(e) => setNss(e.target.value.replace(/[^\d]/g, "").slice(0, 11))}
+                  label="Buscar por email"
+                  value={logEmail}
+                  onChange={(e) => setLogEmail(e.target.value)}
+                  placeholder="correo@…"
                 />
               </div>
 
-              <div style={{ height: 12 }} />
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <Button variant="ghost" onClick={pasteCurpNss} style={{ height: 46 }}>
-                  <Icon>📋</Icon> Pegar CURP/NSS
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={generate}
-                  loading={generateLoading}
-                  style={{ height: 46 }}
-                >
-                  Generar documento
-                </Button>
-              </div>
-
-              <div style={{ height: 16 }} />
-              <div style={{ color: ui.mut, fontSize: 13 }}>
-                Aquí aparecerán los PDFs para descargar cuando generes un documento.
-              </div>
-
-              <div style={{ height: 10 }} />
-
-              {files?.length > 0 && (
-                <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-                  {files.map((f, idx) => {
-                    const niceName = buildNiceFilename({ type, curp, index: idx, ext: "pdf" });
-                    return (
-                      <div
-                        key={f.fileId || f.id || idx}
-                        style={{
-                          border: `1px solid ${ui.border}`,
-                          borderRadius: 16,
-                          padding: 14,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 12,
-                          background: "#FBFCFF",
-                        }}
-                      >
-                        <div style={{ display: "grid", gap: 6 }}>
-                          <div style={{ fontWeight: 950, color: ui.text }}>{niceName}</div>
-                          <div style={{ fontSize: 12, color: ui.mut }}>
-                            {f.filename ? `Original: ${f.filename}` : "PDF generado."}
+              <div style={{ marginTop: 14 }}>
+                {loadingLogs ? (
+                  <div style={{ color: "#64748b" }}>Cargando…</div>
+                ) : filteredLogs.length ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {filteredLogs.slice(0, 50).map((l) => (
+                      <div key={l.id || l.createdAt || Math.random()} style={styles.logRow}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <div style={{ fontWeight: 900 }}>{l.email || l.userEmail || "—"}</div>
+                          <div style={{ color: "#64748b", fontSize: 12 }}>
+                            {l.createdAt ? new Date(l.createdAt).toISOString() : nowISO()}
                           </div>
                         </div>
 
-                        <Button
-                          variant="soft"
-                          onClick={() => download(f.fileId, niceName)}
-                          loading={!!downloading[f.fileId]}
-                          style={{ height: 42, minWidth: 120 }}
-                        >
-                          <Icon>📄</Icon> PDF
-                        </Button>
+                        <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <Pill>{l.type || "—"}</Pill>
+                          {l.curp ? <Pill tone="blue">{l.curp}</Pill> : null}
+                          {l.nss ? <Pill>{l.nss}</Pill> : null}
+                          {l.filesCount ? <Pill tone="green">{l.filesCount} PDF(s)</Pill> : null}
+                        </div>
+
+                        {/* Archivos del log */}
+                        {Array.isArray(l.files) && l.files.length ? (
+                          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                            {l.files.map((f) => {
+                              const pretty = `${fileLabelFromType(l.type)}_${String(l.curp || "").toUpperCase()}.pdf`;
+                              return (
+                                <div key={f.fileId || f.filename} style={styles.fileRow}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                    <div style={styles.fileIcon}>PDF</div>
+                                    <div style={{ fontWeight: 800 }}>{clampStr(f.filename || pretty, 80)}</div>
+                                  </div>
+                                  <Button
+                                    variant="soft"
+                                    onClick={() => download(f.fileId, pretty)}
+                                    disabled={!!downloading[f.fileId]}
+                                    leftIcon={downloading[f.fileId] ? <span style={styles.spinner} /> : <Icon name="download" />}
+                                  >
+                                    {downloading[f.fileId] ? "…" : "Descargar"}
+                                  </Button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+
+                        <div style={{ marginTop: 8, fontSize: 12, color: "#94a3b8" }}>
+                          * Si ya pasó 24h, el backend puede haberlo borrado.
+                        </div>
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ color: "#64748b" }}>Sin logs para esos filtros.</div>
+                )}
+              </div>
+            </Card>
+          )}
+
+          {view === "creditlogs" && isAdmin && (
+            <Card
+              title="Créditos"
+              subtitle="Registros de cambios de créditos."
+              right={
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <Input
+                    value={creditEmail}
+                    onChange={(e) => setCreditEmail(e.target.value)}
+                    placeholder="Filtrar por email…"
+                    right={<Icon name="search" />}
+                  />
+                  <Button variant="ghost" onClick={refreshCreditLogs} leftIcon={<Icon name="refresh" />} disabled={loadingCreditLogs}>
+                    {loadingCreditLogs ? "…" : ""}
+                  </Button>
                 </div>
+              }
+            >
+              {loadingCreditLogs ? (
+                <div style={{ color: "#64748b" }}>Cargando…</div>
+              ) : filteredCreditLogs?.length ? (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {filteredCreditLogs.slice(0, 60).map((l) => (
+                    <div key={l.id} style={styles.creditRow}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                        <div style={{ fontWeight: 900 }}>{l.userEmail}</div>
+                        <div style={{ color: "#64748b", fontSize: 12 }}>
+                          {l.createdAt ? new Date(l.createdAt).toISOString() : nowISO()}
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <Pill tone="purple">Admin: {l.adminEmail}</Pill>
+                        <Pill tone={Number(l.delta) >= 0 ? "green" : "red"}>{Number(l.delta) >= 0 ? `+${l.delta}` : l.delta}</Pill>
+                        <Pill>Antes: {l.before}</Pill>
+                        <Pill>Después: {l.after}</Pill>
+                        {l.note ? <Pill>{clampStr(l.note, 60)}</Pill> : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ color: "#64748b" }}>Sin logs de créditos.</div>
               )}
+            </Card>
+          )}
+
+          {/* Modals */}
+          {createOpen && (
+            <div style={styles.modalBackdrop} onMouseDown={() => setCreateOpen(false)}>
+              <div style={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+                <div style={{ fontWeight: 900, fontSize: 18 }}>Crear usuario</div>
+                <div style={{ color: "#64748b", marginTop: 4, fontSize: 13 }}>
+                  Crea usuario nuevo (admin o user).
+                </div>
+
+                <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+                  <Input
+                    label="Email"
+                    value={newUserEmail}
+                    onChange={(e) => setNewUserEmail(e.target.value)}
+                    placeholder="correo@…"
+                  />
+                  <Input
+                    label="Password"
+                    value={newUserPass}
+                    onChange={(e) => setNewUserPass(e.target.value)}
+                    placeholder="mínimo 6"
+                    type="password"
+                  />
+                  <Select
+                    label="Rol"
+                    value={newUserRole}
+                    onChange={(e) => setNewUserRole(e.target.value)}
+                    options={[
+                      { value: "user", label: "user" },
+                      { value: "admin", label: "admin" },
+                    ]}
+                  />
+                </div>
+
+                <div style={{ marginTop: 14, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <Button variant="ghost" onClick={() => setCreateOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={createUser}
+                    disabled={creatingUser || !newUserEmail || !newUserPass}
+                    leftIcon={creatingUser ? <span style={styles.spinner} /> : <Icon name="plus" />}
+                  >
+                    {creatingUser ? "Creando…" : "Crear"}
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
-        </Card>
-      </div>
-    );
-  };
 
-  const DashboardPage = () => {
-    if (!isAdmin) {
-      return (
-        <div>
-          <PageHeader title="Dashboard" subtitle="Solo disponible para admins." />
-        </div>
-      );
-    }
+          {creditsOpen && creditTarget && (
+            <div style={styles.modalBackdrop} onMouseDown={() => setCreditsOpen(false)}>
+              <div style={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+                <div style={{ fontWeight: 900, fontSize: 18 }}>Asignar créditos</div>
+                <div style={{ color: "#64748b", marginTop: 4, fontSize: 13 }}>
+                  Usuario: <b>{creditTarget.email}</b>
+                </div>
 
-    const { uCount, totalCredits, last24hCount, topList } = dashboardStats;
+                <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+                  <Input
+                    label="Cantidad (entero, puede ser negativo)"
+                    value={String(creditAmount)}
+                    onChange={(e) => setCreditAmount(e.target.value)}
+                    placeholder="Ej: 10 / -10"
+                  />
+                  <Input
+                    label="Nota (opcional)"
+                    value={creditNote}
+                    onChange={(e) => setCreditNote(e.target.value)}
+                    placeholder="Ej: Recarga semanal"
+                  />
+                </div>
 
-    return (
-      <div>
-        <PageHeader title="Dashboard" subtitle="Resumen rápido de tu operación." />
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-          <Card>
-            <div style={{ padding: 16 }}>
-              <div style={{ color: ui.mut, fontWeight: 900, fontSize: 12 }}>Usuarios</div>
-              <div style={{ fontSize: 28, fontWeight: 1000, marginTop: 8 }}>{uCount || "—"}</div>
-            </div>
-          </Card>
-          <Card>
-            <div style={{ padding: 16 }}>
-              <div style={{ color: ui.mut, fontWeight: 900, fontSize: 12 }}>Créditos totales</div>
-              <div style={{ fontSize: 28, fontWeight: 1000, marginTop: 8 }}>{totalCredits || "—"}</div>
-            </div>
-          </Card>
-          <Card>
-            <div style={{ padding: 16 }}>
-              <div style={{ color: ui.mut, fontWeight: 900, fontSize: 12 }}>Consultas 24h</div>
-              <div style={{ fontSize: 28, fontWeight: 1000, marginTop: 8 }}>{last24hCount || "—"}</div>
-            </div>
-          </Card>
-          <Card>
-            <div style={{ padding: 16 }}>
-              <div style={{ color: ui.mut, fontWeight: 900, fontSize: 12 }}>Rol</div>
-              <div style={{ fontSize: 28, fontWeight: 1000, marginTop: 8 }}>{isSuper ? "Super" : "Admin"}</div>
-            </div>
-          </Card>
-        </div>
-
-        <div style={{ height: 14 }} />
-
-        <Card>
-          <CardHeader
-            title="Top trámites (24h)"
-            subtitle="Los trámites más utilizados en las últimas 24 horas."
-            right={
-              <Button variant="ghost" onClick={refreshAdmin} style={{ height: 42 }}>
-                <Icon>🔄</Icon> Actualizar
-              </Button>
-            }
-          />
-          <div style={{ padding: 18 }}>
-            {topList.length === 0 ? (
-              <div style={{ color: ui.mut }}>Sin datos aún (haz algunas consultas).</div>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {topList.map(([k, v]) => (
-                  <div
-                    key={k}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: 14,
-                      borderRadius: 14,
-                      border: `1px solid ${ui.border}`,
-                      background: "#FBFCFF",
-                    }}
+                <div style={{ marginTop: 14, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <Button variant="ghost" onClick={() => setCreditsOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={grantCredits}
+                    disabled={savingCredits}
+                    leftIcon={savingCredits ? <span style={styles.spinner} /> : <Icon name="credit" />}
                   >
-                    <div style={{ fontWeight: 1000, color: ui.text }}>{k}</div>
-                    <Pill color="blue">{v}</Pill>
-                  </div>
-                ))}
+                    {savingCredits ? "Guardando…" : "Guardar"}
+                  </Button>
+                </div>
               </div>
-            )}
-          </div>
-        </Card>
-      </div>
-    );
-  };
-
-  const UsersPage = () => {
-    if (!isAdmin) {
-      return <PageHeader title="Usuarios" subtitle="Solo disponible para admins." />;
-    }
-
-    return (
-      <div>
-        <PageHeader title="Usuarios" subtitle="Como admin solo ves tus usuarios." />
-
-        <Card>
-          <CardHeader
-            title="Usuarios"
-            subtitle="Gestiona usuarios, deshabilita, resetea password y asigna créditos."
-            right={
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <Input
-                  placeholder="Buscar email..."
-                  value={""}
-                  onChange={() => {}}
-                  style={{ width: 220, display: "none" }}
-                />
-                <Button variant="ghost" onClick={refreshAdmin} style={{ height: 42 }}>
-                  <Icon>🔄</Icon>
-                </Button>
-                <Button variant="primary" onClick={() => setCreateOpen(true)} style={{ height: 42 }}>
-                  <Icon>➕</Icon> Crear
-                </Button>
-              </div>
-            }
-          />
-
-          <div style={{ padding: 18, display: "grid", gap: 12 }}>
-            {(users || []).length === 0 ? (
-              <div style={{ color: ui.mut }}>Sin usuarios.</div>
-            ) : (
-              users.map((u) => {
-                const disabled = !!u.disabled;
-                return (
-                  <div
-                    key={u.id}
-                    style={{
-                      border: `1px solid ${ui.border}`,
-                      borderRadius: 16,
-                      padding: 14,
-                      background: "#fff",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 14,
-                    }}
-                  >
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <div style={{ fontWeight: 1000, color: ui.text }}>{u.email}</div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <Pill color={u.role === "admin" ? "purple" : "gray"}>
-                          {u.role || "user"}
-                        </Pill>
-                        <Pill color={disabled ? "red" : "green"}>
-                          {disabled ? "Deshabilitado" : "Activo"}
-                        </Pill>
-                        <Pill color="gray">Créditos: {Number(u.credits || 0)}</Pill>
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      <Button variant="ghost" onClick={() => openCredits(u)} style={{ height: 42 }}>
-                        <Icon>💳</Icon> Créditos
-                      </Button>
-                      <Button variant="ghost" onClick={() => resetPassword(u.id)} style={{ height: 42 }}>
-                        <Icon>🔑</Icon> Reset
-                      </Button>
-                      <Button
-                        variant={disabled ? "soft" : "danger"}
-                        onClick={() => toggleDisabled(u)}
-                        style={{ height: 42 }}
-                      >
-                        <Icon>{disabled ? "✅" : "⛔"}</Icon>
-                        {disabled ? "Habilitar" : "Deshabilitar"}
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </Card>
-      </div>
-    );
-  };
-
-  const LogsPage = () => {
-    if (!isAdmin) return <PageHeader title="Logs de consultas" subtitle="Solo disponible para admins." />;
-
-    return (
-      <div>
-        <PageHeader
-          title="Logs de consultas"
-          subtitle="Filtra por tipo, fechas y email."
-          right={
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <Pill color="blue">Admin</Pill>
-              <Button variant="ghost" onClick={refreshAdmin} style={{ height: 42 }}>
-                Refrescar
-              </Button>
             </div>
-          }
-        />
-
-        <Card>
-          <CardHeader
-            title="Consultas"
-            subtitle="Logs globales (con scope por rol)."
-            right={
-              <div style={{ display: "flex", gap: 10 }}>
-                <Button
-                  variant="ghost"
-                  onClick={() => setApplyLogFiltersFlag((x) => x + 1)}
-                  style={{ height: 42 }}
-                >
-                  Aplicar filtros
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setLogType("todos");
-                    setLogRange("7d");
-                    setLogEmail("");
-                    setApplyLogFiltersFlag((x) => x + 1);
-                  }}
-                  style={{ height: 42 }}
-                >
-                  Limpiar
-                </Button>
-              </div>
-            }
-          />
-
-          <div style={{ padding: 18 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-              <div style={{ display: "grid", gap: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 1000, color: ui.text }}>Tipo</div>
-                <select
-                  value={logType}
-                  onChange={(e) => setLogType(e.target.value)}
-                  style={{
-                    height: 46,
-                    borderRadius: 14,
-                    border: `1px solid ${ui.border}`,
-                    padding: "0 12px",
-                    fontWeight: 800,
-                  }}
-                >
-                  <option value="todos">Todos</option>
-                  <option value="semanas">semanas</option>
-                  <option value="nss">nss</option>
-                  <option value="vigencia">vigencia</option>
-                  <option value="noderecho">noderecho</option>
-                </select>
-              </div>
-
-              <div style={{ display: "grid", gap: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 1000, color: ui.text }}>Rango rápido</div>
-                <select
-                  value={logRange}
-                  onChange={(e) => setLogRange(e.target.value)}
-                  style={{
-                    height: 46,
-                    borderRadius: 14,
-                    border: `1px solid ${ui.border}`,
-                    padding: "0 12px",
-                    fontWeight: 800,
-                  }}
-                >
-                  <option value="24h">Últimas 24h</option>
-                  <option value="7d">Últimos 7 días</option>
-                  <option value="30d">Últimos 30 días</option>
-                  <option value="all">Todo</option>
-                </select>
-              </div>
-
-              <Input
-                label="Buscar por email"
-                placeholder="correo@..."
-                value={logEmail}
-                onChange={(e) => setLogEmail(e.target.value)}
-              />
-            </div>
-
-            <div style={{ height: 14 }} />
-
-            {filteredLogs.length === 0 ? (
-              <div style={{ color: ui.mut }}>Sin logs para esos filtros.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 12 }}>
-                {filteredLogs.slice(0, 60).map((l, i) => {
-                  const dt = new Date(l.createdAt || 0).toISOString();
-                  const logFiles = Array.isArray(l.files) ? l.files : [];
-
-                  return (
-                    <div
-                      key={l.id || i}
-                      style={{
-                        border: `1px solid ${ui.border}`,
-                        borderRadius: 16,
-                        padding: 14,
-                        background: "#fff",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                        <div style={{ fontWeight: 1000 }}>{l.email || "—"}</div>
-                        <div style={{ fontSize: 12, color: ui.mut }}>{dt}</div>
-                      </div>
-
-                      <div style={{ height: 8 }} />
-
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <Pill color="gray">{String(l.type || "—")}</Pill>
-                        {l.curp && <Pill color="blue">{String(l.curp).toUpperCase()}</Pill>}
-                        {l.nss && <Pill color="gray">{String(l.nss)}</Pill>}
-                        <Pill color="green">{logFiles.length || 0} PDF(s)</Pill>
-                      </div>
-
-                      <div style={{ height: 10 }} />
-
-                      {logFiles.length > 0 ? (
-                        <div style={{ display: "grid", gap: 10 }}>
-                          {logFiles.map((f, idx) => {
-                            const fileId = f.fileId || f.id;
-                            const niceName = buildNiceFilename({
-                              type: l.type,
-                              curp: l.curp,
-                              index: idx,
-                              ext: "pdf",
-                            });
-
-                            return (
-                              <div
-                                key={fileId || idx}
-                                style={{
-                                  border: `1px solid ${ui.border}`,
-                                  borderRadius: 14,
-                                  padding: 12,
-                                  background: "#FBFCFF",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "space-between",
-                                  gap: 12,
-                                }}
-                              >
-                                <div style={{ display: "grid", gap: 4 }}>
-                                  <div style={{ fontWeight: 950, color: ui.text }}>
-                                    {niceName}
-                                  </div>
-                                  {f.expiresAt && (
-                                    <div style={{ fontSize: 12, color: ui.mut }}>
-                                      Expira: {String(f.expiresAt)}
-                                    </div>
-                                  )}
-                                </div>
-
-                                <Button
-                                  variant="soft"
-                                  onClick={() => download(fileId, niceName)}
-                                  loading={!!downloading[fileId]}
-                                  style={{ height: 40, minWidth: 110 }}
-                                >
-                                  <Icon>📄</Icon> PDF
-                                </Button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div style={{ color: ui.mut, fontSize: 13 }}>
-                          Sin archivos en este log.
-                        </div>
-                      )}
-
-                      <div style={{ marginTop: 10, fontSize: 12, color: ui.mut }}>
-                        * Si ya pasó 24h, el backend puede haberlo borrado.
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </Card>
+          )}
+        </main>
       </div>
-    );
-  };
-
-  const CreditLogsPage = () => {
-    if (!isAdmin) return <PageHeader title="Logs de créditos" subtitle="Solo disponible para admins." />;
-
-    return (
-      <div>
-        <PageHeader title="Logs de créditos" subtitle="Historial de otorgamientos y ajustes de créditos." />
-
-        <Card>
-          <CardHeader
-            title="Créditos"
-            subtitle="Registros de cambios de créditos."
-            right={
-              <Button variant="ghost" onClick={refreshAdmin} style={{ height: 42 }}>
-                <Icon>🔄</Icon> Refrescar
-              </Button>
-            }
-          />
-          <div style={{ padding: 18 }}>
-            {(creditLogs || []).length === 0 ? (
-              <div style={{ color: ui.mut }}>Sin logs de créditos.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 12 }}>
-                {creditLogs.slice(0, 80).map((c, i) => (
-                  <div
-                    key={c.id || i}
-                    style={{
-                      border: `1px solid ${ui.border}`,
-                      borderRadius: 16,
-                      padding: 14,
-                      background: "#fff",
-                      display: "grid",
-                      gap: 8,
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                      <div style={{ fontWeight: 1000 }}>
-                        {c.userEmail || "—"}{" "}
-                        <span style={{ color: ui.mut, fontWeight: 800 }}>
-                          (por {c.adminEmail || "admin"})
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 12, color: ui.mut }}>
-                        {String(c.createdAt || "")}
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <Pill color={Number(c.delta) >= 0 ? "green" : "red"}>
-                        {Number(c.delta) >= 0 ? "+" : ""}
-                        {c.delta}
-                      </Pill>
-                      <Pill color="gray">Antes: {c.before}</Pill>
-                      <Pill color="gray">Después: {c.after}</Pill>
-                      {c.note && <Pill color="blue">{c.note}</Pill>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </Card>
-      </div>
-    );
-  };
-
-  /**
-   * =========================================================
-   *  MAIN RENDER
-   * =========================================================
-   */
-  const main = () => {
-    if (view === "consultar") return <ConsultarPage />;
-    if (view === "dashboard") return <DashboardPage />;
-    if (view === "users") return <UsersPage />;
-    if (view === "logs") return <LogsPage />;
-    if (view === "creditlogs") return <CreditLogsPage />;
-    return <ConsultarPage />;
-  };
-
-  return (
-    <>
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        * { box-sizing: border-box; }
-      `}</style>
-
-      <PageShell>{main()}</PageShell>
 
       <Toast toast={toast} onClose={() => setToast(null)} />
-
-      {/* Modal crear usuario */}
-      <Modal open={createOpen} title="Crear usuario" onClose={() => setCreateOpen(false)}>
-        <div style={{ display: "grid", gap: 12 }}>
-          <Input
-            label="Email"
-            placeholder="nuevo@docuexpress.com"
-            value={newUEmail}
-            onChange={(e) => setNewUEmail(e.target.value)}
-          />
-          <Input
-            label="Password"
-            placeholder="mínimo 6"
-            type="password"
-            value={newUPass}
-            onChange={(e) => setNewUPass(e.target.value)}
-          />
-          <div style={{ display: "grid", gap: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 1000, color: ui.text }}>Rol</div>
-            <select
-              value={newURole}
-              onChange={(e) => setNewURole(e.target.value)}
-              style={{
-                height: 46,
-                borderRadius: 14,
-                border: `1px solid ${ui.border}`,
-                padding: "0 12px",
-                fontWeight: 800,
-              }}
-            >
-              <option value="user">user</option>
-              <option value="admin">admin</option>
-            </select>
-            <div style={{ fontSize: 12, color: ui.mut }}>
-              Nota: el “super admin” real requiere lógica en backend (scopes por admin).
-            </div>
-          </div>
-
-          <Button variant="primary" onClick={createUser} loading={createLoading} style={{ width: "100%" }}>
-            Crear
-          </Button>
-        </div>
-      </Modal>
-
-      {/* Modal créditos */}
-      <Modal open={creditsOpen} title="Asignar créditos" onClose={() => setCreditsOpen(false)}>
-        <div style={{ display: "grid", gap: 12 }}>
-          <div style={{ fontSize: 13, color: ui.mut }}>
-            Usuario: <b style={{ color: ui.text }}>{creditsTarget?.email}</b>
-          </div>
-          <Input
-            label="Cantidad (entero, puede ser negativo)"
-            value={String(creditsAmount)}
-            onChange={(e) => setCreditsAmount(e.target.value.replace(/[^\d-]/g, ""))}
-          />
-          <Input
-            label="Nota (opcional)"
-            value={creditsNote}
-            onChange={(e) => setCreditsNote(e.target.value)}
-            placeholder="Ej: paquete 50"
-          />
-
-          <Button
-            variant="primary"
-            onClick={grantCredits}
-            loading={creditsLoading}
-            style={{ width: "100%" }}
-          >
-            Guardar
-          </Button>
-        </div>
-      </Modal>
-    </>
+    </div>
   );
+}
+
+/* ===========================
+   Styles (premium, clean)
+=========================== */
+const styles = {
+  page: {
+    minHeight: "100vh",
+    background: "radial-gradient(1200px 500px at 55% 0%, rgba(79,70,229,.10), transparent 60%) #f6f8fc",
+    color: "#0f172a",
+  },
+  shell: {
+    maxWidth: 1320,
+    margin: "0 auto",
+    padding: 18,
+    display: "grid",
+    gridTemplateColumns: "320px 1fr",
+    gap: 16,
+  },
+
+  /* Login */
+  sidebarLogin: {
+    background: "rgba(255,255,255,.70)",
+    border: "1px solid rgba(2,6,23,.06)",
+    borderRadius: 22,
+    padding: 18,
+    boxShadow: "0 20px 40px rgba(2,6,23,.06)",
+    backdropFilter: "blur(8px)",
+  },
+  loginCard: {
+    marginTop: 14,
+    background: "white",
+    borderRadius: 18,
+    padding: 18,
+    border: "1px solid rgba(2,6,23,.06)",
+  },
+  loginHero: {
+    background: "white",
+    borderRadius: 22,
+    border: "1px solid rgba(2,6,23,.06)",
+    boxShadow: "0 20px 40px rgba(2,6,23,.06)",
+    overflow: "hidden",
+  },
+  heroInner: { padding: 28 },
+  heroBox: {
+    border: "1px solid rgba(2,6,23,.06)",
+    borderRadius: 16,
+    padding: 14,
+    background: "rgba(248,250,252,.8)",
+  },
+  heroBoxTitle: { fontWeight: 900 },
+  heroBoxText: { marginTop: 4, color: "#64748b", fontSize: 13 },
+
+  /* Sidebar */
+  sidebar: {
+    background: "rgba(255,255,255,.75)",
+    border: "1px solid rgba(2,6,23,.06)",
+    borderRadius: 22,
+    padding: 18,
+    boxShadow: "0 20px 40px rgba(2,6,23,.06)",
+    backdropFilter: "blur(8px)",
+    height: "calc(100vh - 36px)",
+    position: "sticky",
+    top: 18,
+    alignSelf: "start",
+    overflow: "auto",
+  },
+  brandRow: { display: "flex", alignItems: "center", justifyContent: "space-between" },
+  brand: { fontSize: 24, letterSpacing: -0.5 },
+  sessionCard: {
+    marginTop: 14,
+    background: "white",
+    borderRadius: 18,
+    padding: 16,
+    border: "1px solid rgba(2,6,23,.06)",
+  },
+  menuBtn: {
+    width: "100%",
+    borderRadius: 14,
+    border: "1px solid rgba(2,6,23,.06)",
+    background: "white",
+    padding: "12px 12px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    cursor: "pointer",
+    transition: "transform .06s ease, box-shadow .12s ease",
+  },
+  menuBtnActive: {
+    background: "linear-gradient(135deg, rgba(79,70,229,.92), rgba(99,102,241,.92))",
+    color: "white",
+    borderColor: "rgba(79,70,229,.35)",
+    boxShadow: "0 12px 30px rgba(79,70,229,.25)",
+  },
+  menuDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 99,
+    background: "rgba(15,23,42,.22)",
+  },
+
+  /* Main */
+  main: { padding: 4 },
+  topBar: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "flex-start",
+    padding: "10px 6px 6px 6px",
+  },
+  breadcrumb: { color: "#64748b", fontWeight: 700, fontSize: 13 },
+  pageTitle: { fontSize: 40, fontWeight: 950, letterSpacing: -1.2, marginTop: 2 },
+  pageSub: { color: "#64748b", marginTop: 6, lineHeight: 1.5 },
+
+  /* Cards */
+  card: {
+    marginTop: 14,
+    background: "white",
+    borderRadius: 20,
+    border: "1px solid rgba(2,6,23,.06)",
+    boxShadow: "0 20px 40px rgba(2,6,23,.06)",
+    overflow: "hidden",
+  },
+  cardHeader: {
+    padding: 18,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    borderBottom: "1px solid rgba(2,6,23,.06)",
+    background: "linear-gradient(180deg, rgba(248,250,252,.9), white)",
+  },
+  cardTitle: { fontWeight: 950, fontSize: 16 },
+  cardSub: { color: "#64748b", marginTop: 4, fontSize: 13 },
+  cardBody: { padding: 18 },
+
+  statCard: {
+    background: "white",
+    borderRadius: 18,
+    border: "1px solid rgba(2,6,23,.06)",
+    boxShadow: "0 16px 34px rgba(2,6,23,.05)",
+    padding: 16,
+  },
+  statTop: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+  statTitle: { color: "#64748b", fontWeight: 800, fontSize: 12 },
+  statIcon: { opacity: 0.8 },
+  statValue: { marginTop: 8, fontWeight: 950, fontSize: 26, letterSpacing: -0.5 },
+
+  /* Form */
+  formRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
+  grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 },
+  optionCard: {
+    borderRadius: 18,
+    border: "1px solid rgba(2,6,23,.06)",
+    background: "rgba(248,250,252,.9)",
+    padding: 16,
+    cursor: "pointer",
+    boxShadow: "0 12px 28px rgba(2,6,23,.04)",
+    transition: "transform .08s ease, box-shadow .14s ease",
+  },
+  optionTitle: { fontWeight: 950, fontSize: 16 },
+  optionSub: { color: "#64748b", marginTop: 6, fontSize: 13, lineHeight: 1.4 },
+
+  /* Inputs */
+  label: { fontWeight: 900, fontSize: 12, color: "#0f172a", marginBottom: 6 },
+  inputWrap: {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    borderRadius: 14,
+    border: "1px solid rgba(2,6,23,.10)",
+    background: "white",
+    boxShadow: "0 10px 22px rgba(2,6,23,.04)",
+  },
+  input: {
+    width: "100%",
+    padding: "12px 14px",
+    border: "none",
+    outline: "none",
+    borderRadius: 14,
+    fontSize: 14,
+  },
+  inputRight: { paddingRight: 12, color: "#64748b", display: "flex", alignItems: "center" },
+  select: {
+    width: "100%",
+    padding: "12px 14px",
+    borderRadius: 14,
+    border: "1px solid rgba(2,6,23,.10)",
+    background: "white",
+    outline: "none",
+    fontSize: 14,
+    boxShadow: "0 10px 22px rgba(2,6,23,.04)",
+  },
+
+  /* Buttons */
+  btnPrimary: {
+    border: "none",
+    borderRadius: 14,
+    padding: "12px 14px",
+    cursor: "pointer",
+    background: "linear-gradient(135deg, rgba(79,70,229,.95), rgba(99,102,241,.95))",
+    color: "white",
+    fontWeight: 950,
+    boxShadow: "0 16px 34px rgba(79,70,229,.25)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    minHeight: 44,
+  },
+  btnSoft: {
+    border: "1px solid rgba(2,6,23,.08)",
+    borderRadius: 14,
+    padding: "12px 14px",
+    cursor: "pointer",
+    background: "rgba(248,250,252,.9)",
+    color: "#0f172a",
+    fontWeight: 900,
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: 44,
+  },
+  btnGhost: {
+    border: "1px solid rgba(2,6,23,.08)",
+    borderRadius: 14,
+    padding: "12px 14px",
+    cursor: "pointer",
+    background: "white",
+    color: "#0f172a",
+    fontWeight: 900,
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: 44,
+  },
+  btnDanger: {
+    border: "1px solid rgba(220,38,38,.25)",
+    borderRadius: 14,
+    padding: "12px 14px",
+    cursor: "pointer",
+    background: "rgba(220,38,38,.06)",
+    color: "#991b1b",
+    fontWeight: 950,
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: 44,
+  },
+
+  /* Small */
+  pill: {
+    fontSize: 12,
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(2,6,23,.08)",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    fontWeight: 800,
+  },
+
+  /* Rows */
+  fileRow: {
+    borderRadius: 16,
+    border: "1px solid rgba(2,6,23,.06)",
+    background: "rgba(248,250,252,.9)",
+    padding: 12,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+  },
+  fileIcon: {
+    width: 44,
+    height: 34,
+    borderRadius: 12,
+    background: "rgba(79,70,229,.10)",
+    border: "1px solid rgba(79,70,229,.18)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 950,
+    color: "#3730a3",
+  },
+  userRow: {
+    borderRadius: 16,
+    border: "1px solid rgba(2,6,23,.06)",
+    background: "rgba(248,250,252,.9)",
+    padding: 14,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+  },
+  logRow: {
+    borderRadius: 18,
+    border: "1px solid rgba(2,6,23,.06)",
+    background: "white",
+    padding: 14,
+    boxShadow: "0 14px 30px rgba(2,6,23,.05)",
+  },
+  creditRow: {
+    borderRadius: 18,
+    border: "1px solid rgba(2,6,23,.06)",
+    background: "white",
+    padding: 14,
+    boxShadow: "0 14px 30px rgba(2,6,23,.05)",
+  },
+  topRow: {
+    borderRadius: 14,
+    border: "1px solid rgba(2,6,23,.06)",
+    background: "rgba(248,250,252,.9)",
+    padding: 12,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  /* Toast */
+  toastWrap: { position: "fixed", bottom: 18, right: 18, zIndex: 9999 },
+  toast: {
+    width: 420,
+    background: "white",
+    borderRadius: 18,
+    border: "1px solid rgba(2,6,23,.08)",
+    borderLeft: "6px solid #4f46e5",
+    boxShadow: "0 24px 54px rgba(2,6,23,.15)",
+    padding: 14,
+  },
+  toastHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 },
+  toastBody: { marginTop: 6, color: "#334155", fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap" },
+  toastClose: {
+    border: "1px solid rgba(2,6,23,.10)",
+    background: "rgba(248,250,252,.9)",
+    borderRadius: 12,
+    padding: "8px 10px",
+    cursor: "pointer",
+    fontWeight: 900,
+  },
+
+  /* Modal */
+  modalBackdrop: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(2,6,23,.45)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 18,
+    zIndex: 9998,
+  },
+  modal: {
+    width: 520,
+    maxWidth: "100%",
+    background: "white",
+    borderRadius: 18,
+    border: "1px solid rgba(2,6,23,.08)",
+    boxShadow: "0 30px 80px rgba(2,6,23,.35)",
+    padding: 16,
+  },
+
+  /* Spinner */
+  spinner: {
+    width: 16,
+    height: 16,
+    borderRadius: 99,
+    border: "2px solid rgba(255,255,255,.45)",
+    borderTopColor: "white",
+    display: "inline-block",
+    animation: "spin 0.8s linear infinite",
+  },
+};
+
+// Inject keyframes for spinner
+if (typeof document !== "undefined" && !document.getElementById("dx-spin-style")) {
+  const style = document.createElement("style");
+  style.id = "dx-spin-style";
+  style.innerHTML = `@keyframes spin{to{transform:rotate(360deg)}}`;
+  document.head.appendChild(style);
 }
