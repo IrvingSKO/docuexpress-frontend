@@ -26,12 +26,6 @@ function nowISO() {
   return new Date().toISOString();
 }
 
-function toDateInputValue(d) {
-  // YYYY-MM-DD
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
 function subtractDays(date, days) {
   const d = new Date(date);
   d.setDate(d.getDate() - days);
@@ -58,9 +52,22 @@ function normalizeEmail(s) {
 }
 
 function isWAFHtmlMessage(msg) {
-  // Cuando el proveedor regresa HTML/WAF (Incapsula, etc)
   const m = String(msg || "");
   return m.includes("<html") || m.toLowerCase().includes("incapsula");
+}
+
+/** ✅ Validación A (CURP “oficial”) */
+const CURP_REGEX =
+  /^[A-Z][AEIOUX][A-Z]{2}\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[HM](AS|BC|BS|CC|CL|CM|CS|CH|DF|DG|GT|GR|HG|JC|MC|MN|MS|NT|NL|OC|PL|QT|QR|SP|SL|SR|TC|TS|TL|VZ|YN|ZS|NE)[B-DF-HJ-NP-TV-Z]{3}[A-Z\d]\d$/;
+const NSS_REGEX = /^\d{11}$/;
+
+function validateCurp(curp) {
+  const c = String(curp || "").trim().toUpperCase();
+  return CURP_REGEX.test(c);
+}
+function validateNss(nss) {
+  const n = String(nss || "").trim();
+  return NSS_REGEX.test(n);
 }
 
 /* ===========================
@@ -73,7 +80,6 @@ async function authFetch(path, opts = {}) {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  // Si mandamos body como JSON, aseguramos content-type
   const hasBody = opts.body !== undefined && opts.body !== null;
   const isFormData = hasBody && opts.body instanceof FormData;
 
@@ -233,28 +239,56 @@ function Button({ children, variant = "primary", onClick, disabled, leftIcon, st
       : styles.btnSoft;
 
   return (
-    <button onClick={onClick} disabled={disabled} style={{ ...base, ...(style || {}) }}>
+    <button onClick={onClick} disabled={disabled} style={{ ...base, ...(style || {}), opacity: disabled ? 0.65 : 1 }}>
       {leftIcon ? <span style={{ marginRight: 10, display: "inline-flex" }}>{leftIcon}</span> : null}
       {children}
     </button>
   );
 }
 
-function Input({ label, value, onChange, placeholder, type = "text", right, autoComplete }) {
+/** ✅ Input mejorado: soporta disabled + error */
+function Input({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  right,
+  autoComplete,
+  disabled,
+  error,
+}) {
   return (
     <div style={{ width: "100%" }}>
       {label ? <div style={styles.label}>{label}</div> : null}
-      <div style={styles.inputWrap}>
+      <div
+        style={{
+          ...styles.inputWrap,
+          borderColor: error ? "rgba(220,38,38,.55)" : "rgba(2,6,23,.10)",
+          boxShadow: error ? "0 10px 22px rgba(220,38,38,.10)" : styles.inputWrap.boxShadow,
+        }}
+      >
         <input
           type={type}
           value={value}
           onChange={onChange}
           placeholder={placeholder}
           autoComplete={autoComplete}
-          style={styles.input}
+          disabled={disabled}
+          style={{
+            ...styles.input,
+            background: disabled ? "rgba(248,250,252,.9)" : "white",
+            cursor: disabled ? "not-allowed" : "text",
+          }}
         />
         {right ? <div style={styles.inputRight}>{right}</div> : null}
       </div>
+
+      {error ? (
+        <div style={{ marginTop: 6, color: "#dc2626", fontSize: 12, fontWeight: 800 }}>
+          {error}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -320,6 +354,7 @@ export default function App() {
   const [curp, setCurp] = useState("");
   const [nss, setNss] = useState("");
   const [files, setFiles] = useState([]);
+  const [lastCurpUsed, setLastCurpUsed] = useState("");
 
   // Data
   const [users, setUsers] = useState([]);
@@ -364,8 +399,26 @@ export default function App() {
   const isAdmin = me?.role === "admin" || me?.role === "superadmin";
   const isSuper = me?.role === "superadmin";
 
-  // ✅ Evitar blur “raro”: input focus estable
+  // (solo por compat con tu versión anterior)
   const passwordRef = useRef(null);
+
+  /* ===========================
+     Credits: refrescar SOLO cuando toca (no cada segundo)
+  ============================ */
+  const refreshCredits = async () => {
+    try {
+      const r = await authFetch("/api/credits/me");
+      if (!r.ok) return;
+      const c = await safeJson(r);
+
+      setMe((prev) => {
+        if (!prev) return prev;
+        const updated = { ...prev, credits: c.credits ?? prev.credits };
+        localStorage.setItem("me", JSON.stringify(updated));
+        return updated;
+      });
+    } catch {}
+  };
 
   /* ===========================
      Bootstrap session
@@ -374,7 +427,6 @@ export default function App() {
     const token = localStorage.getItem("token");
     if (!token) return;
 
-    // Ping a credits/me para validar token y recuperar usuario guardado si existe
     const saved = localStorage.getItem("me");
     if (saved) {
       try {
@@ -383,18 +435,9 @@ export default function App() {
       } catch {}
     }
 
-    authFetch("/api/credits/me")
-      .then(async (r) => {
-        if (!r.ok) throw new Error("bad");
-        const data = await safeJson(r);
-        // si tengo me, actualizo credits
-        setMe((prev) => (prev ? { ...prev, credits: data.credits ?? prev.credits } : prev));
-      })
-      .catch(() => {
-        localStorage.removeItem("token");
-        localStorage.removeItem("me");
-        setMe(null);
-      });
+    // ✅ una sola vez al cargar
+    refreshCredits();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ===========================
@@ -430,6 +473,9 @@ export default function App() {
       setConsultStep("cards");
       setFiles([]);
 
+      // ✅ créditos una vez
+      refreshCredits();
+
       showToast({ type: "success", title: "Sesión iniciada", message: "Bienvenido 👋" });
     } catch {
       showToast({
@@ -463,9 +509,10 @@ export default function App() {
       const r = await authFetch("/api/users");
       const data = await safeJson(r);
       if (!r.ok) throw new Error(data.message || "No se pudo cargar usuarios");
-      setUsers(data.users || data.users === undefined ? data.users : (data.users || []));
-      // compat por si backend responde {users:[...]}
-      setUsers(data.users || data.users === undefined ? (data.users || []) : []);
+
+      // ✅ compat: si backend responde arreglo directo o {users:[]}
+      const list = Array.isArray(data) ? data : (data.users || []);
+      setUsers(list);
     } catch (e) {
       showToast({ type: "error", title: "Error", message: String(e.message || e) });
     } finally {
@@ -503,18 +550,6 @@ export default function App() {
 
   // Cuando entra a vistas admin, cargamos
   useEffect(() => {
-    if (!me) return;
-    // mantener credits actualizados
-    authFetch("/api/credits/me")
-      .then(async (r) => {
-        if (!r.ok) return;
-        const data = await safeJson(r);
-        setMe((prev) => (prev ? { ...prev, credits: data.credits ?? prev.credits } : prev));
-      })
-      .catch(() => {});
-  }, [me, view]);
-
-  useEffect(() => {
     if (!me || !isAdmin) return;
     if (view === "users") refreshUsers();
     if (view === "logs") refreshLogs();
@@ -532,12 +567,15 @@ export default function App() {
     return { curp: true, nss: true, hint: "CURP + NSS" }; // semanas
   }, [type]);
 
+  // ✅ errores en vivo
+  const curpErr = curp && !validateCurp(curp) ? "CURP inválida" : null;
+  const nssErr = requirements.nss && nss && !validateNss(nss) ? "NSS inválido (11 dígitos)" : null;
+
   const onPaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
       const t = String(text || "").trim();
-      // Buscar CURP (18) y NSS (11) dentro del texto
-      const curpMatch = t.match(/[A-Z]{4}\d{6}[A-Z]{6}\d{2}/i);
+      const curpMatch = t.match(/[A-Z][AEIOUX][A-Z]{2}\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[HM](AS|BC|BS|CC|CL|CM|CS|CH|DF|DG|GT|GR|HG|JC|MC|MN|MS|NT|NL|OC|PL|QT|QR|SP|SL|SR|TC|TS|TL|VZ|YN|ZS|NE)[B-DF-HJ-NP-TV-Z]{3}[A-Z\d]\d/i);
       const nssMatch = t.match(/\b\d{11}\b/);
 
       if (curpMatch) setCurp(curpMatch[0].toUpperCase());
@@ -555,12 +593,14 @@ export default function App() {
     const cleanCurp = String(curp || "").trim().toUpperCase();
     const cleanNss = String(nss || "").trim();
 
-    if (requirements.curp && cleanCurp.length < 10) {
-      showToast({ type: "error", title: "Falta CURP", message: "Ingresa una CURP válida." });
+    // ✅ Validación A
+    if (!validateCurp(cleanCurp)) {
+      showToast({ type: "error", title: "Formato inválido", message: "La CURP no es válida." });
       return;
     }
-    if (requirements.nss && cleanNss.length !== 11) {
-      showToast({ type: "error", title: "Falta NSS", message: "El NSS debe tener 11 dígitos." });
+
+    if (requirements.nss && !validateNss(cleanNss)) {
+      showToast({ type: "error", title: "Formato inválido", message: "El NSS debe tener 11 dígitos." });
       return;
     }
 
@@ -576,7 +616,6 @@ export default function App() {
       const data = await safeJson(res);
 
       if (!res.ok) {
-        // Mensaje más “bonito” si el proveedor bloquea
         const msg = data?.message || `HTTP ${res.status}`;
         if (isWAFHtmlMessage(msg)) {
           showToast({
@@ -591,18 +630,18 @@ export default function App() {
         return;
       }
 
-      // Actualizar credits
-      authFetch("/api/credits/me")
-        .then(async (r) => {
-          if (!r.ok) return;
-          const c = await safeJson(r);
-          setMe((prev) => (prev ? { ...prev, credits: c.credits ?? prev.credits } : prev));
-          localStorage.setItem("me", JSON.stringify({ ...(me || {}), credits: c.credits }));
-        })
-        .catch(() => {});
+      // ✅ guardar curp usado para nombres de descarga
+      setLastCurpUsed(cleanCurp);
 
       setFiles(data.files || []);
       showToast({ type: "success", title: "Documento generado", message: "PDF listo para descargar." });
+
+      // ✅ créditos SOLO aquí
+      refreshCredits();
+
+      // ✅ limpiar inputs al éxito
+      setCurp("");
+      setNss("");
     } catch {
       showToast({ type: "error", title: "Error de red", message: "No se pudo conectar al backend." });
     } finally {
@@ -763,12 +802,10 @@ export default function App() {
   const filteredLogs = useMemo(() => {
     let items = Array.isArray(logs) ? logs.slice() : [];
 
-    // tipo
     if (logType !== "all") {
       items = items.filter((l) => String(l.type) === logType);
     }
 
-    // rango
     const days = Number(logRange);
     if (Number.isFinite(days) && days > 0) {
       const from = subtractDays(new Date(), days).getTime();
@@ -778,13 +815,11 @@ export default function App() {
       });
     }
 
-    // email
     const q = normalizeEmail(logEmail);
     if (q) {
       items = items.filter((l) => normalizeEmail(l.email || l.userEmail).includes(q));
     }
 
-    // newest first
     items.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
     return items;
   }, [logs, logType, logRange, logEmail]);
@@ -869,7 +904,7 @@ export default function App() {
               </div>
 
               <div style={{ marginTop: 14, color: "#64748b", fontSize: 13 }}>
-                Tip: si quieres usar el <b>super admin</b>, crea ese usuario en la DB (abajo te digo cómo).
+                Tip: usa tu admin/superadmin que ya sembraste en el backend.
               </div>
             </div>
           </div>
@@ -995,6 +1030,8 @@ export default function App() {
                     refreshUsers();
                     refreshLogs();
                   }
+                  // créditos a mano si quieres
+                  refreshCredits();
                 }}
                 leftIcon={<Icon name="refresh" />}
               >
@@ -1093,6 +1130,7 @@ export default function App() {
 
                     <Button
                       variant="ghost"
+                      disabled={loadingGenerate}
                       onClick={() => {
                         setConsultStep("cards");
                         setFiles([]);
@@ -1108,19 +1146,32 @@ export default function App() {
                     <Input
                       label="CURP"
                       value={curp}
-                      onChange={(e) => setCurp(e.target.value.toUpperCase())}
+                      onChange={(e) => setCurp(e.target.value.toUpperCase().replace(/\s/g, ""))}
                       placeholder="Ej: GUCJ030206HPLRRVA1"
+                      disabled={loadingGenerate}
+                      error={curp ? curpErr : null}
                     />
-                    <Input
-                      label={requirements.nss ? "NSS (obligatorio)" : "NSS (opcional)"}
-                      value={nss}
-                      onChange={(e) => setNss(e.target.value)}
-                      placeholder={requirements.nss ? "11 dígitos" : "11 dígitos (si aplica)"}
-                    />
+
+                    {/* ✅ NSS SOLO aparece si el trámite lo requiere */}
+                    {requirements.nss ? (
+                      <Input
+                        label="NSS (obligatorio)"
+                        value={nss}
+                        onChange={(e) => setNss(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                        placeholder="11 dígitos"
+                        disabled={loadingGenerate}
+                        error={nss ? nssErr : null}
+                      />
+                    ) : null}
                   </div>
 
                   <div style={styles.formRow}>
-                    <Button variant="soft" onClick={onPaste} leftIcon={<span style={{ fontSize: 16 }}>📋</span>}>
+                    <Button
+                      variant="soft"
+                      onClick={onPaste}
+                      disabled={loadingGenerate}
+                      leftIcon={<span style={{ fontSize: 16 }}>📋</span>}
+                    >
                       Pegar CURP/NSS
                     </Button>
 
@@ -1144,9 +1195,8 @@ export default function App() {
                     <div style={{ display: "grid", gap: 10, marginTop: 4 }}>
                       {files.map((f) => {
                         const label = fileLabelFromType(type);
-                        // ✅ nombre “bonito” sugerido (frontend): TIPO_CURP.pdf
-                        // (Para quitar “principal” real, eso se hace en backend al crear el filename)
-                        const niceName = `${label}_${String(curp || "").trim().toUpperCase()}.pdf`;
+                        const used = String(lastCurpUsed || "").trim().toUpperCase();
+                        const niceName = `${label}_${used || "CURP"}.pdf`;
 
                         return (
                           <div key={f.fileId} style={styles.fileRow}>
@@ -1198,6 +1248,7 @@ export default function App() {
                     onClick={() => {
                       refreshUsers();
                       refreshLogs();
+                      refreshCredits();
                     }}
                     leftIcon={<Icon name="refresh" />}
                   >
@@ -1255,6 +1306,13 @@ export default function App() {
                           <Pill tone={u.disabled ? "red" : "green"}>{u.disabled ? "Deshabilitado" : "Activo"}</Pill>
                           <Pill>Créditos: {u.credits ?? 0}</Pill>
                         </div>
+
+                        {/* Si backend agrega owner/admin: lo mostramos */}
+                        {u.createdByEmail ? (
+                          <div style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>
+                            Admin dueño: <b>{u.createdByEmail}</b>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -1354,7 +1412,6 @@ export default function App() {
                           {l.filesCount ? <Pill tone="green">{l.filesCount} PDF(s)</Pill> : null}
                         </div>
 
-                        {/* Archivos del log */}
                         {Array.isArray(l.files) && l.files.length ? (
                           <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
                             {l.files.map((f) => {
