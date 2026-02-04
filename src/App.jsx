@@ -1,242 +1,268 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 /**
- * BACKEND_URL:
- * - usa VITE_BACKEND_URL si existe
- * - si no, fallback a Render (tu URL)
+ * BACKEND URL
+ * - Vercel: define VITE_BACKEND_URL en Project Settings
+ * - Fallback: Render (tu backend)
  */
 const BACKEND_URL =
-  (import.meta?.env?.VITE_BACKEND_URL && String(import.meta.env.VITE_BACKEND_URL).trim()) ||
+  (import.meta?.env?.VITE_BACKEND_URL &&
+    String(import.meta.env.VITE_BACKEND_URL).trim()) ||
   "https://docuexpress.onrender.com";
 
-// ===================== utils =====================
+// ===================== HELPERS =====================
 async function safeJson(res) {
-  const txt = await res.text().catch(() => "");
+  const t = await res.text();
   try {
-    return txt ? JSON.parse(txt) : {};
+    return JSON.parse(t);
   } catch {
-    return { message: txt || "Respuesta inválida del servidor" };
+    return { message: t };
   }
 }
 
-function cx(...arr) {
-  return arr.filter(Boolean).join(" ");
+function cls(...a) {
+  return a.filter(Boolean).join(" ");
 }
 
-function formatDate(iso) {
+function fmtDate(iso) {
   try {
     const d = new Date(iso);
-    return d.toISOString();
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString();
   } catch {
     return iso;
   }
 }
 
-function withinRange(iso, mode) {
-  // mode: "24h" | "7d" | "30d" | "all"
-  if (!iso) return false;
-  if (mode === "all") return true;
-  const now = Date.now();
-  const t = new Date(iso).getTime();
-  const diff = now - t;
-  if (Number.isNaN(t)) return false;
-  if (mode === "24h") return diff <= 24 * 60 * 60 * 1000;
-  if (mode === "7d") return diff <= 7 * 24 * 60 * 60 * 1000;
-  if (mode === "30d") return diff <= 30 * 24 * 60 * 60 * 1000;
-  return true;
+function toISODate(d) {
+  // yyyy-mm-dd
+  const x = new Date(d);
+  const yyyy = x.getFullYear();
+  const mm = String(x.getMonth() + 1).padStart(2, "0");
+  const dd = String(x.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
-function sumCredits(users) {
-  return (users || []).reduce((acc, u) => acc + (Number(u.credits) || 0), 0);
+function sanitizeFilePart(s) {
+  return String(s || "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9_\-]/g, "")
+    .slice(0, 80);
 }
 
-// ===================== auth fetch =====================
-async function authFetch(path, options = {}) {
+function labelForType(type) {
+  const t = String(type || "").toLowerCase();
+  if (t.includes("seman")) return "Semanas";
+  if (t.includes("nss") || t.includes("asign") || t.includes("local")) return "NSS";
+  if (t.includes("vigen")) return "Vigencia";
+  if (t.includes("no") && t.includes("dere")) return "NoDerecho";
+  // fallback
+  return "Documento";
+}
+
+function buildNiceFilename({ type, curp }) {
+  const label = labelForType(type);
+  const c = sanitizeFilePart(curp || "SIN_CURP");
+  return `${label}_${c}.pdf`;
+}
+
+/**
+ * authFetch: pega token + JSON headers
+ */
+async function authFetch(path, opts = {}) {
   const token = localStorage.getItem("token");
-  const res = await fetch(`${BACKEND_URL}${path}`, {
-    ...options,
-    headers: {
-      ...(options.headers || {}),
-      ...(options.body && !options.headers?.["Content-Type"] ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
-  return res;
+  const headers = {
+    ...(opts.headers || {}),
+  };
+
+  // Si el body es FormData, NO pongas Content-Type
+  const isFormData = typeof FormData !== "undefined" && opts.body instanceof FormData;
+
+  if (!isFormData) headers["Content-Type"] = "application/json";
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  return fetch(`${BACKEND_URL}${path}`, { ...opts, headers });
 }
 
-// ===================== UI primitives =====================
+// ===================== UI PRIMITIVES =====================
 const styles = {
   page: {
+    minHeight: "100vh",
+    background: "#f6f7fb",
+    color: "#0f172a",
     fontFamily:
       'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif',
-    background: "#f6f7fb",
-    minHeight: "100vh",
-    color: "#0f172a",
   },
   shell: {
     display: "grid",
-    gridTemplateColumns: "300px 1fr",
+    gridTemplateColumns: "320px 1fr",
+    gap: 0,
     minHeight: "100vh",
   },
-  aside: {
-    background: "#fff",
-    borderRight: "1px solid #e5e7eb",
-    padding: 18,
+  sidebar: {
+    background: "#ffffff",
+    borderRight: "1px solid #e9ecf5",
+    padding: "22px 18px",
   },
   main: {
-    padding: 28,
+    padding: "28px 36px",
   },
   brand: {
-    fontSize: 24,
-    fontWeight: 900,
-    letterSpacing: -0.6,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
     marginBottom: 18,
   },
-  badgeSaas: {
-    marginLeft: 10,
-    fontSize: 12,
+  logo: {
+    fontSize: 24,
+    fontWeight: 900,
+    letterSpacing: -0.5,
+  },
+  logoAccent: { color: "#4f46e5" },
+  pill: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
     padding: "6px 10px",
     borderRadius: 999,
-    border: "1px solid #e5e7eb",
-    background: "#f8fafc",
-    fontWeight: 800,
-    color: "#0f172a",
+    background: "#f1f5ff",
+    border: "1px solid #dbe3ff",
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#374151",
   },
   card: {
     background: "#fff",
-    border: "1px solid #e5e7eb",
+    border: "1px solid #e9ecf5",
     borderRadius: 18,
-    boxShadow: "0 22px 50px rgba(0,0,0,.08)",
+    boxShadow: "0 14px 28px rgba(15,23,42,.06)",
   },
   cardHeader: {
-    padding: 18,
-    borderBottom: "1px solid #eef2f7",
+    padding: "16px 18px",
+    borderBottom: "1px solid #edf1fb",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
   },
   cardBody: {
-    padding: 18,
+    padding: "18px",
   },
-  h1: { fontSize: 34, fontWeight: 950, letterSpacing: -0.8, margin: 0 },
-  subtitle: { color: "#64748b", marginTop: 8, fontSize: 14 },
-  pill: (tone) => {
+  h1: { fontSize: 44, fontWeight: 900, letterSpacing: -1.2, margin: "6px 0 4px" },
+  h2: { fontSize: 30, fontWeight: 900, letterSpacing: -0.6, margin: 0 },
+  sub: { color: "#64748b", marginTop: 8 },
+  label: { fontSize: 12, fontWeight: 800, color: "#475569", marginBottom: 8 },
+  input: {
+    width: "100%",
+    borderRadius: 14,
+    border: "1px solid #e5e7eb",
+    padding: "12px 14px",
+    outline: "none",
+    fontSize: 14,
+    background: "#ffffff",
+  },
+  inputRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 },
+  btn: {
+    borderRadius: 14,
+    border: "1px solid #e5e7eb",
+    padding: "12px 14px",
+    fontSize: 14,
+    fontWeight: 800,
+    cursor: "pointer",
+    background: "#fff",
+  },
+  btnPrimary: {
+    background: "#4f46e5",
+    border: "1px solid #4f46e5",
+    color: "#fff",
+  },
+  btnSoft: {
+    background: "#f1f5ff",
+    border: "1px solid #dbe3ff",
+    color: "#1f2a70",
+  },
+  navGroupTitle: {
+    marginTop: 18,
+    marginBottom: 8,
+    fontSize: 12,
+    fontWeight: 900,
+    color: "#64748b",
+    textTransform: "none",
+  },
+  navBtn: (active) => ({
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: "12px 14px",
+    borderRadius: 14,
+    border: `1px solid ${active ? "#4f46e5" : "#e9ecf5"}`,
+    background: active ? "#4f46e5" : "#fff",
+    color: active ? "#fff" : "#0f172a",
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: active ? "0 14px 28px rgba(79,70,229,.18)" : "none",
+    marginBottom: 10,
+  }),
+  meta: { fontSize: 12, color: "#64748b" },
+  badge: (variant) => {
     const map = {
-      indigo: { bg: "#eef2ff", fg: "#3730a3", bd: "#c7d2fe" },
-      cyan: { bg: "#ecfeff", fg: "#155e75", bd: "#a5f3fc" },
-      green: { bg: "#f0fdf4", fg: "#166534", bd: "#bbf7d0" },
-      red: { bg: "#fef2f2", fg: "#7f1d1d", bd: "#fecaca" },
-      gray: { bg: "#f8fafc", fg: "#0f172a", bd: "#e5e7eb" },
-      purple: { bg: "#f5f3ff", fg: "#5b21b6", bd: "#ddd6fe" },
+      admin: { bg: "#eef2ff", bd: "#dbe3ff", fg: "#3730a3" },
+      user: { bg: "#ecfeff", bd: "#b7f7ff", fg: "#0e7490" },
+      ok: { bg: "#ecfdf5", bd: "#bbf7d0", fg: "#166534" },
+      warn: { bg: "#fff7ed", bd: "#fed7aa", fg: "#9a3412" },
+      gray: { bg: "#f1f5f9", bd: "#e2e8f0", fg: "#334155" },
     };
-    const c = map[tone] || map.gray;
+    const v = map[variant] || map.gray;
     return {
       display: "inline-flex",
       alignItems: "center",
-      gap: 6,
-      fontSize: 12,
+      gap: 8,
       padding: "6px 10px",
       borderRadius: 999,
-      border: `1px solid ${c.bd}`,
-      background: c.bg,
-      color: c.fg,
-      fontWeight: 800,
-      lineHeight: 1,
+      background: v.bg,
+      border: `1px solid ${v.bd}`,
+      color: v.fg,
+      fontSize: 12,
+      fontWeight: 900,
       whiteSpace: "nowrap",
     };
   },
-  btn: (variant = "primary") => {
-    const base = {
-      borderRadius: 14,
-      padding: "10px 14px",
-      fontWeight: 900,
-      cursor: "pointer",
-      border: "1px solid transparent",
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 8,
-      justifyContent: "center",
-      userSelect: "none",
-    };
-    const v = {
-      primary: { background: "#4f46e5", color: "#fff" },
-      soft: { background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe" },
-      ghost: { background: "#fff", color: "#0f172a", border: "1px solid #e5e7eb" },
-      danger: { background: "#ef4444", color: "#fff" },
-    };
-    return { ...base, ...(v[variant] || v.primary) };
-  },
-  input: {
-    width: "100%",
-    padding: 12,
-    borderRadius: 14,
-    border: "1px solid #e5e7eb",
-    outline: "none",
-    fontSize: 14,
-    background: "#fff",
-  },
-  label: { fontSize: 12, fontWeight: 900, marginBottom: 6, color: "#0f172a" },
-  sectionTitle: { fontSize: 12, color: "#64748b", fontWeight: 900, margin: "18px 0 10px" },
-  navBtn: (active) => ({
-    width: "100%",
-    textAlign: "left",
-    padding: "12px 14px",
-    borderRadius: 16,
-    border: "1px solid #e5e7eb",
-    background: active ? "#4f46e5" : "#fff",
-    color: active ? "#fff" : "#0f172a",
-    fontWeight: 950,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-  }),
 };
 
-// ===================== Toast =====================
 function Toast({ toast, onClose }) {
   if (!toast) return null;
-
-  const typeStyles = {
-    success: { border: "#22c55e", bg: "#f0fdf4", title: "#166534" },
-    error: { border: "#ef4444", bg: "#fef2f2", title: "#7f1d1d" },
-    info: { border: "#6366f1", bg: "#eef2ff", title: "#312e81" },
+  const colors = {
+    success: "#16a34a",
+    error: "#dc2626",
+    info: "#4f46e5",
+    warn: "#f59e0b",
   };
-  const s = typeStyles[toast.type || "info"];
+  const c = colors[toast.type] || colors.info;
 
   return (
-    <div style={{ position: "fixed", right: 20, bottom: 20, width: 380, zIndex: 9999 }}>
+    <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9999 }}>
       <div
         style={{
-          background: s.bg,
-          border: `1px solid ${s.border}`,
-          borderRadius: 14,
+          background: "#fff",
+          borderLeft: `6px solid ${c}`,
           padding: 14,
-          boxShadow: "0 18px 40px rgba(0,0,0,.12)",
+          borderRadius: 14,
+          width: 380,
+          boxShadow: "0 20px 40px rgba(0,0,0,.15)",
+          border: "1px solid #eef2ff",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
           <div>
-            <div style={{ fontWeight: 950, color: s.title, marginBottom: 4 }}>{toast.title}</div>
-            <div style={{ fontSize: 13, color: "#111827", opacity: 0.9, lineHeight: 1.4 }}>
-              {toast.message}
-            </div>
+            <div style={{ fontWeight: 900 }}>{toast.title}</div>
+            <div style={{ fontSize: 13, marginTop: 4, color: "#475569" }}>{toast.message}</div>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              border: "none",
-              background: "transparent",
-              cursor: "pointer",
-              fontSize: 18,
-              lineHeight: 1,
-              padding: 6,
-              borderRadius: 10,
-            }}
-            title="Cerrar"
-          >
-            ✕
+          <button onClick={onClose} style={{ ...styles.btn, padding: "8px 10px" }}>
+            Cerrar
           </button>
         </div>
       </div>
@@ -244,78 +270,57 @@ function Toast({ toast, onClose }) {
   );
 }
 
-// ===================== Modal =====================
-function Modal({ open, title, subtitle, children, onClose }) {
+function Modal({ open, title, children, onClose, footer }) {
   if (!open) return null;
   return (
     <div
-      onMouseDown={onClose}
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(15, 23, 42, .45)",
+        background: "rgba(2,6,23,.50)",
         zIndex: 9998,
         display: "grid",
         placeItems: "center",
-        padding: 18,
+        padding: 20,
       }}
+      onMouseDown={onClose}
     >
       <div
-        onMouseDown={(e) => e.stopPropagation()}
         style={{
-          width: "min(680px, 100%)",
+          width: "min(720px, 96vw)",
           background: "#fff",
           borderRadius: 18,
-          border: "1px solid #e5e7eb",
-          boxShadow: "0 30px 80px rgba(0,0,0,.22)",
-          overflow: "hidden",
+          border: "1px solid #e9ecf5",
+          boxShadow: "0 30px 70px rgba(15,23,42,.25)",
         }}
+        onMouseDown={(e) => e.stopPropagation()}
       >
-        <div style={{ padding: 18, borderBottom: "1px solid #eef2f7" }}>
-          <div style={{ fontWeight: 950, fontSize: 16 }}>{title}</div>
-          {subtitle ? <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>{subtitle}</div> : null}
+        <div style={{ ...styles.cardHeader }}>
+          <div style={{ fontWeight: 900, fontSize: 16 }}>{title}</div>
+          <button onClick={onClose} style={{ ...styles.btn, padding: "10px 12px" }}>
+            ✕
+          </button>
         </div>
         <div style={{ padding: 18 }}>{children}</div>
+        {footer ? (
+          <div style={{ padding: 18, borderTop: "1px solid #edf1fb" }}>{footer}</div>
+        ) : null}
       </div>
     </div>
   );
 }
 
-// ===================== Small components =====================
-function StatCard({ title, value, icon }) {
+function StatCard({ title, value, right }) {
   return (
-    <div
-      style={{
-        ...styles.card,
-        padding: 18,
-        borderRadius: 18,
-        display: "flex",
-        justifyContent: "space-between",
-        gap: 12,
-      }}
-    >
-      <div>
-        <div style={{ color: "#64748b", fontSize: 13, fontWeight: 900 }}>{title}</div>
-        <div style={{ fontSize: 26, fontWeight: 950, letterSpacing: -0.6, marginTop: 10 }}>{value}</div>
+    <div style={{ ...styles.card, padding: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 900, color: "#475569" }}>{title}</div>
+          <div style={{ fontSize: 26, fontWeight: 1000, marginTop: 6 }}>{value}</div>
+        </div>
+        <div style={{ opacity: 0.85 }}>{right}</div>
       </div>
-      <div style={{ fontSize: 18, opacity: 0.8 }}>{icon}</div>
     </div>
-  );
-}
-
-function PdfButton({ state, onClick }) {
-  // state: "ready" | "downloading" | "success" | "error"
-  const map = {
-    ready: { text: "PDF", variant: "soft" },
-    downloading: { text: "Descargando…", variant: "ghost" },
-    success: { text: "OK", variant: "soft" },
-    error: { text: "Error", variant: "danger" },
-  };
-  const s = map[state] || map.ready;
-  return (
-    <button onClick={onClick} style={styles.btn(s.variant)} disabled={state === "downloading"}>
-      {s.text}
-    </button>
   );
 }
 
@@ -323,1261 +328,1350 @@ function PdfButton({ state, onClick }) {
 export default function App() {
   // Toast
   const [toast, setToast] = useState(null);
-  const toastTimer = useRef(null);
-  const showToast = (t) => {
-    setToast(t);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 3500);
-  };
+  const showToast = (t) => setToast(t);
 
-  // Session/user
-  const [me, setMe] = useState(null);
-  const isLogged = !!me;
-  const isAdmin = me?.role === "admin";
-  const isSuperAdmin = me?.email === "irvingestray@gmail.com";
-
-  // Login form
-  const [email, setEmail] = useState("admin@docuexpress.com");
-  const [password, setPassword] = useState("");
-
-  // Navigation
-  const [view, setView] = useState("consultar"); // consultar | dashboard | users | logs | creditlogs | createuser
-  const [refreshTick, setRefreshTick] = useState(0);
-
-  // Consult flow
-  const [step, setStep] = useState("cards"); // cards | form
-  const [type, setType] = useState("semanas"); // semanas | asignacion(local "nss") | vigencia | noderecho
-  const [curp, setCurp] = useState("");
-  const [nss, setNss] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [generatedFiles, setGeneratedFiles] = useState([]); // [{fileId, filename, expiresAt}]
-  const [downloadState, setDownloadState] = useState({}); // { [fileId]: "ready"|"downloading"|"success"|"error" }
-
-  // Admin data
-  const [users, setUsers] = useState([]);
-  const [logs, setLogs] = useState([]);
-  const [creditLogs, setCreditLogs] = useState([]);
-
-  const [loadingUsers, setLoadingUsers] = useState(false);
-  const [loadingLogs, setLoadingLogs] = useState(false);
-  const [loadingCreditLogs, setLoadingCreditLogs] = useState(false);
-
-  // Filters (logs)
-  const [logType, setLogType] = useState("all"); // all|semanas|asignacion|vigencia|noderecho
-  const [logRange, setLogRange] = useState("7d"); // 24h|7d|30d|all
-  const [logEmail, setLogEmail] = useState("");
-  const [applyFiltersKey, setApplyFiltersKey] = useState(0);
-
-  // Filters (credit logs)
-  const [creditEmail, setCreditEmail] = useState("");
-
-  // Users search
-  const [userSearch, setUserSearch] = useState("");
-
-  // Create user modal
-  const [createOpen, setCreateOpen] = useState(false);
-  const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserPass, setNewUserPass] = useState("");
-  const [newUserRole, setNewUserRole] = useState("user"); // user|admin (solo superadmin debería crear admins, pero UI lo permite si isSuperAdmin)
-
-  // Credits modal
-  const [creditsOpen, setCreditsOpen] = useState(false);
-  const [creditsTarget, setCreditsTarget] = useState(null); // user object
-  const [creditsAmount, setCreditsAmount] = useState(10);
-  const [creditsNote, setCreditsNote] = useState("");
-
-  // ENV sanity check (te ayuda cuando Vercel inyecta mal env)
+  // ===== ENV CHECK (tu bloque “paso 1” ya viene aquí, al inicio del componente) =====
   useEffect(() => {
     if (!BACKEND_URL || String(BACKEND_URL).includes("undefined")) {
       console.error("VITE_BACKEND_URL está mal:", BACKEND_URL);
       showToast({
-        type: "error",
-        title: "Config incorrecta",
-        message: "VITE_BACKEND_URL está vacío/undefined. Revisa variables en Vercel.",
+        type: "warn",
+        title: "Config incompleta",
+        message: "VITE_BACKEND_URL parece mal configurada. Usaré el fallback.",
       });
     }
   }, []);
 
-  // Load session (token)
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) return;
-    (async () => {
-      try {
-        // mínimo: credits/me para validar token
-        const res = await authFetch("/api/credits/me");
-        if (res.status === 401) {
-          localStorage.removeItem("token");
-          setMe(null);
-          return;
-        }
-        const data = await safeJson(res);
-        // si tu backend no tiene endpoint /me, dejamos esto como sesión activa
-        setMe((prev) => prev || { email: "sesión activa", role: "user", credits: data.credits ?? 0 });
-      } catch {
-        // ignore
-      }
-    })();
-  }, []);
+  // Auth
+  const [email, setEmail] = useState("admin@docuexpress.com");
+  const [password, setPassword] = useState("");
+  const [me, setMe] = useState(null);
 
-  // Login / Logout
+  // Views
+  const [view, setView] = useState("consultar"); // consultar | dashboard | users | logs | creditlogs
+  const [loading, setLoading] = useState(false);
+
+  // Download state
+  const [dl, setDl] = useState({}); // { [fileId]: "idle"|"downloading"|"done"|"error" }
+
+  // Consultar flow
+  const [step, setStep] = useState("cards"); // cards | form
+  const [type, setType] = useState("semanas");
+  const [curp, setCurp] = useState("");
+  const [nss, setNss] = useState("");
+  const [files, setFiles] = useState([]);
+
+  // Data admin
+  const [users, setUsers] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [creditLogs, setCreditLogs] = useState([]);
+
+  // Modals
+  const [openCreate, setOpenCreate] = useState(false);
+  const [openCredits, setOpenCredits] = useState(false);
+  const [creditsUser, setCreditsUser] = useState(null);
+  const [creditsAmount, setCreditsAmount] = useState(10);
+  const [creditsNote, setCreditsNote] = useState("");
+
+  // Create user fields
+  const [newEmail, setNewEmail] = useState("");
+  const [newPass, setNewPass] = useState("");
+  const [newRole, setNewRole] = useState("user");
+
+  // Filters logs
+  const [logType, setLogType] = useState("all");
+  const [logRange, setLogRange] = useState("7d"); // 24h | 7d | 30d | all
+  const [logEmail, setLogEmail] = useState("");
+  const [logApplied, setLogApplied] = useState({ type: "all", range: "7d", email: "" });
+
+  // Filter credit logs
+  const [creditEmail, setCreditEmail] = useState("");
+
+  // Clipboard paste
+  const pasteBtnRef = useRef(null);
+
+  // ====== AUTH: login / logout ======
+
   const onLogin = async () => {
     try {
+      setLoading(true);
       const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
+
       const data = await safeJson(res);
+
       if (!res.ok) {
-        showToast({ type: "error", title: "Login fallido", message: data.message || `HTTP ${res.status}` });
+        showToast({
+          type: "error",
+          title: "Login fallido",
+          message: data.message || `HTTP ${res.status}`,
+        });
         return;
       }
+
       localStorage.setItem("token", data.token);
       setMe(data.user);
-      showToast({ type: "success", title: "Sesión iniciada", message: "Bienvenido 👋" });
-      setView("consultar");
-      setStep("cards");
-      setGeneratedFiles([]);
-    } catch {
-      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar al backend." });
-    }
-  };
-
-  const onLogout = () => {
-    localStorage.removeItem("token");
-    setMe(null);
-    setUsers([]);
-    setLogs([]);
-    setCreditLogs([]);
-    setGeneratedFiles([]);
-    setStep("cards");
-    setView("consultar");
-    showToast({ type: "info", title: "Sesión cerrada", message: "Hasta luego." });
-  };
-
-  // Refresh all
-  const refreshAll = () => setRefreshTick((x) => x + 1);
-
-  // Fetch data for admin panels
-  useEffect(() => {
-    if (!isLogged) return;
-
-    // refresh credits always
-    (async () => {
-      try {
-        const r = await authFetch("/api/credits/me");
-        if (r.status === 401) return;
-        const d = await safeJson(r);
-        setMe((m) => (m ? { ...m, credits: d.credits ?? m.credits } : m));
-      } catch {
-        // ignore
-      }
-    })();
-
-    // Users (admin)
-    if (isAdmin) {
-      (async () => {
-        setLoadingUsers(true);
-        try {
-          const r = await authFetch("/api/users");
-          const d = await safeJson(r);
-          if (r.status === 401) {
-            localStorage.removeItem("token");
-            setMe(null);
-            return;
-          }
-          setUsers(d.users || []);
-        } catch {
-          // ignore
-        } finally {
-          setLoadingUsers(false);
-        }
-      })();
-
-      // Logs consultas
-      (async () => {
-        setLoadingLogs(true);
-        try {
-          const r = await authFetch("/api/logs");
-          const d = await safeJson(r);
-          if (r.status === 401) {
-            localStorage.removeItem("token");
-            setMe(null);
-            return;
-          }
-          // tu routeslogs devuelve array directamente
-          setLogs(Array.isArray(d) ? d : d.logs || []);
-        } catch {
-          // ignore
-        } finally {
-          setLoadingLogs(false);
-        }
-      })();
-
-      // Credit logs
-      (async () => {
-        setLoadingCreditLogs(true);
-        try {
-          const r = await authFetch("/api/creditlogs");
-          const d = await safeJson(r);
-          if (r.status === 401) {
-            localStorage.removeItem("token");
-            setMe(null);
-            return;
-          }
-          setCreditLogs(d.logs || []);
-        } catch {
-          // ignore
-        } finally {
-          setLoadingCreditLogs(false);
-        }
-      })();
-    } else {
-      // user normal: logs/me
-      (async () => {
-        setLoadingLogs(true);
-        try {
-          const r = await authFetch("/api/logs/me");
-          const d = await safeJson(r);
-          setLogs(Array.isArray(d) ? d : d.logs || []);
-        } catch {
-          // ignore
-        } finally {
-          setLoadingLogs(false);
-        }
-      })();
-    }
-  }, [isLogged, isAdmin, refreshTick]);
-
-  // Consult helpers
-  const typeLabel = useMemo(() => {
-    if (type === "semanas") return "Semanas cotizadas";
-    if (type === "asignacion") return "Asignación / Localización NSS";
-    if (type === "vigencia") return "Vigencia de derechos";
-    if (type === "noderecho") return "No derechohabiencia";
-    return type;
-  }, [type]);
-
-  const validateConsult = () => {
-    const c = curp.trim().toUpperCase();
-    const n = nss.trim();
-
-    // CURP básica: 18
-    if (!/^[A-Z0-9]{18}$/.test(c)) {
-      showToast({ type: "error", title: "CURP inválida", message: "Debe tener 18 caracteres (letras/números)." });
-      return false;
-    }
-
-    // semanas/vigencia requieren NSS
-    if (type === "semanas" || type === "vigencia") {
-      if (!/^\d{11}$/.test(n)) {
-        showToast({ type: "error", title: "NSS requerido", message: "Debe ser de 11 dígitos." });
-        return false;
-      }
-    }
-
-    return true;
-  };
-
-  const pasteCurpNss = async () => {
-    try {
-      const text = (await navigator.clipboard.readText()).trim().toUpperCase();
-      const foundCurp = text.match(/[A-Z0-9]{18}/)?.[0] || "";
-      const foundNss = text.match(/\b\d{11}\b/)?.[0] || "";
-      if (foundCurp) setCurp(foundCurp);
-      if (foundNss) setNss(foundNss);
-
-      if (!foundCurp && !foundNss) {
-        showToast({ type: "info", title: "Nada que pegar", message: "Copia una CURP (18) o NSS (11)." });
-        return;
-      }
 
       showToast({
         type: "success",
-        title: "Pegado listo",
-        message: `Pegado: ${foundCurp ? "CURP" : ""}${foundCurp && foundNss ? " + " : ""}${foundNss ? "NSS" : ""}`,
+        title: "Sesión iniciada",
+        message: "Bienvenido 👋",
       });
-    } catch {
+
+      // reset password input to avoid weirdness
+      setPassword("");
+    } catch (e) {
+      console.error(e);
       showToast({
         type: "error",
-        title: "Portapapeles bloqueado",
-        message: "Tu navegador bloqueó el portapapeles. Pega manualmente con Ctrl+V.",
+        title: "Error de red",
+        message: "No se pudo conectar al backend.",
       });
+    } finally {
+      setLoading(false);
     }
   };
 
-  const onGenerate = async () => {
-    if (!validateConsult()) return;
+  const logout = () => {
+    localStorage.removeItem("token");
+    setMe(null);
+    setView("consultar");
+    setStep("cards");
+    setFiles([]);
+    showToast({ type: "info", title: "Sesión cerrada", message: "" });
+  };
 
-    setGenerating(true);
-    setGeneratedFiles([]);
+  // ====== LOAD DATA ======
+  const refreshUsers = async () => {
+    const r = await authFetch("/api/users");
+    const d = await safeJson(r);
+    if (!r.ok) throw new Error(d.message || "Error users");
+    setUsers(d.users || d || []);
+  };
+
+  const refreshLogs = async (applied = logApplied) => {
+    // Build query params (si tu backend ya los soporta, mejor)
+    const params = new URLSearchParams();
+
+    if (applied.type && applied.type !== "all") params.set("type", applied.type);
+
+    // rango rápido
+    const now = new Date();
+    if (applied.range === "24h") {
+      const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      params.set("from", from.toISOString());
+      params.set("to", now.toISOString());
+    } else if (applied.range === "7d") {
+      const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      params.set("from", from.toISOString());
+      params.set("to", now.toISOString());
+    } else if (applied.range === "30d") {
+      const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      params.set("from", from.toISOString());
+      params.set("to", now.toISOString());
+    }
+
+    if (applied.email && applied.email.trim()) params.set("email", applied.email.trim());
+
+    const q = params.toString() ? `?${params.toString()}` : "";
+    const r = await authFetch(`/api/logs${q}`);
+    const d = await safeJson(r);
+    if (!r.ok) throw new Error(d.message || "Error logs");
+
+    const items = d.logs || d || [];
+    setLogs(items);
+  };
+
+  const refreshCreditLogs = async () => {
+    const r = await authFetch("/api/creditlogs");
+    const d = await safeJson(r);
+    if (!r.ok) throw new Error(d.message || "Error creditlogs");
+    setCreditLogs(d.logs || d || []);
+  };
+
+  const refreshAll = async () => {
     try {
-      const payload = {
-        type,
-        curp: curp.trim().toUpperCase(),
-        nss: nss.trim(),
-      };
+      setLoading(true);
+      if (me?.role === "admin") {
+        await Promise.all([refreshUsers(), refreshLogs(logApplied), refreshCreditLogs()]);
+      }
+    } catch (e) {
+      console.error(e);
+      showToast({ type: "error", title: "Error", message: "No se pudieron cargar datos." });
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
+    if (!me) return;
+    // carga inicial
+    refreshAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
+
+  // ====== CONSULTAR: trámites ======
+  const TRAMITES = [
+    {
+      key: "semanas",
+      title: "Semanas cotizadas",
+      desc: "Constancia de semanas cotizadas en el IMSS.",
+      meta: "CURP + NSS",
+      requireNss: true,
+    },
+    {
+      key: "nss",
+      title: "Asignación / Localización NSS",
+      desc: "Genera documentos de NSS (puede devolver 2 PDFs).",
+      meta: "Solo CURP • 2 PDFs",
+      requireNss: false,
+    },
+    {
+      key: "vigencia",
+      title: "Vigencia de derechos",
+      desc: "Constancia de vigencia de derechos.",
+      meta: "CURP + NSS",
+      requireNss: true,
+    },
+    {
+      key: "noderechohabiencia",
+      title: "No derechohabiencia",
+      desc: "Constancia de no derecho al servicio médico.",
+      meta: "Solo CURP (según proveedor)",
+      requireNss: false,
+    },
+  ];
+
+  const selectedTramite = useMemo(
+    () => TRAMITES.find((t) => t.key === type) || TRAMITES[0],
+    [type]
+  );
+
+  const generate = async () => {
+    try {
+      const c = curp.trim().toUpperCase();
+      const n = nss.trim();
+      if (!c || c.length < 10) {
+        showToast({ type: "error", title: "Falta CURP", message: "Captura una CURP válida." });
+        return;
+      }
+      if (selectedTramite.requireNss && (!n || n.length < 10)) {
+        showToast({ type: "error", title: "Falta NSS", message: "Captura el NSS (11 dígitos)." });
+        return;
+      }
+
+      setLoading(true);
       const res = await authFetch("/api/imss", {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ type, curp: c, nss: n }),
       });
 
       const data = await safeJson(res);
 
-      if (res.status === 401) {
-        localStorage.removeItem("token");
-        setMe(null);
-        showToast({ type: "info", title: "Sesión expirada", message: "Vuelve a iniciar sesión." });
-        return;
-      }
-
       if (!res.ok) {
-        // OJO: tú pediste que "Inconsistencia" NO quite créditos: eso es del backend.
-        showToast({ type: "error", title: "Inconsistencia", message: data.message || "IMSS no devolvió PDF." });
+        showToast({
+          type: "error",
+          title: "Inconsistencia",
+          message: data.message || `HTTP ${res.status}`,
+        });
         return;
       }
 
-      const files = data.files || [];
-      setGeneratedFiles(files);
-      // set estado listo para cada file
-      const initial = {};
-      for (const f of files) initial[f.fileId] = "ready";
-      setDownloadState(initial);
-
-      showToast({ type: "success", title: "Documento(s) generado(s)", message: `Se generaron ${files.length} PDF(s).` });
-
-      // refresh credits
-      try {
-        const r2 = await authFetch("/api/credits/me");
-        const d2 = await safeJson(r2);
-        setMe((m) => (m ? { ...m, credits: d2.credits ?? m.credits } : m));
-      } catch {
-        // ignore
-      }
-
-      // refresh dashboard counters/logs if admin
-      refreshAll();
-    } catch {
-      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar al backend (Render)." });
+      setFiles(data.files || []);
+      showToast({ type: "success", title: "PDF listo", message: "Descarga disponible" });
+    } catch (e) {
+      console.error(e);
+      showToast({ type: "error", title: "Error", message: "No se pudo generar el documento." });
     } finally {
-      setGenerating(false);
+      setLoading(false);
     }
   };
 
-  const downloadFile = async (fileId, filename) => {
-    setDownloadState((s) => ({ ...s, [fileId]: "downloading" }));
+  // ====== DESCARGA con estado ======
+  const download = async (fileId, originalFilename) => {
     try {
+      const niceName = buildNiceFilename({ type, curp });
+      setDl((p) => ({ ...p, [fileId]: "downloading" }));
+
       const res = await fetch(`${BACKEND_URL}/api/download/${fileId}`, {
-        headers: {
-          ...(localStorage.getItem("token") ? { Authorization: `Bearer ${localStorage.getItem("token")}` } : {}),
-        },
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
 
-      if (res.status === 401) {
-        localStorage.removeItem("token");
-        setMe(null);
-        showToast({ type: "info", title: "Sesión expirada", message: "Vuelve a iniciar sesión." });
-        setDownloadState((s) => ({ ...s, [fileId]: "error" }));
-        return;
-      }
-
       if (!res.ok) {
-        const data = await safeJson(res);
-        showToast({ type: "error", title: "No se pudo descargar", message: data.message || `HTTP ${res.status}` });
-        setDownloadState((s) => ({ ...s, [fileId]: "error" }));
-        return;
+        const t = await res.text();
+        throw new Error(t || `HTTP ${res.status}`);
       }
 
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = filename || "documento.pdf";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      a.href = URL.createObjectURL(blob);
 
-      setDownloadState((s) => ({ ...s, [fileId]: "success" }));
-      setTimeout(() => setDownloadState((s) => ({ ...s, [fileId]: "ready" })), 1600);
-    } catch {
-      showToast({ type: "error", title: "Error de red", message: "No se pudo descargar el archivo." });
-      setDownloadState((s) => ({ ...s, [fileId]: "error" }));
+      // Aquí cambiamos el nombre (ya no “_principal”)
+      a.download = niceName || originalFilename || "documento.pdf";
+      a.click();
+
+      setDl((p) => ({ ...p, [fileId]: "done" }));
+      setTimeout(() => setDl((p) => ({ ...p, [fileId]: "idle" })), 1500);
+    } catch (e) {
+      console.error(e);
+      setDl((p) => ({ ...p, [fileId]: "error" }));
+      showToast({
+        type: "error",
+        title: "Descarga fallida",
+        message: "No se pudo descargar el PDF.",
+      });
+      setTimeout(() => setDl((p) => ({ ...p, [fileId]: "idle" })), 2000);
     }
   };
 
-  // Admin actions
-  const resetPassword = async (userId) => {
+  // ====== USERS actions ======
+  const createUser = async () => {
     try {
-      const res = await authFetch(`/api/users/${userId}/reset-password`, { method: "POST" });
-      const data = await safeJson(res);
-      if (!res.ok) {
-        showToast({ type: "error", title: "No se pudo resetear", message: data.message || `HTTP ${res.status}` });
+      const e = newEmail.trim().toLowerCase();
+      if (!e || e.length < 5) {
+        showToast({ type: "error", title: "Email inválido", message: "Revisa el email." });
+        return;
+      }
+      if (!newPass || newPass.trim().length < 6) {
+        showToast({ type: "error", title: "Password inválida", message: "Mínimo 6 caracteres." });
+        return;
+      }
+
+      setLoading(true);
+      const r = await authFetch("/api/users", {
+        method: "POST",
+        body: JSON.stringify({ email: e, password: newPass, role: newRole }),
+      });
+      const d = await safeJson(r);
+      if (!r.ok) {
+        showToast({ type: "error", title: "No se pudo crear", message: d.message || "Error" });
+        return;
+      }
+
+      showToast({ type: "success", title: "Usuario creado", message: e });
+      setOpenCreate(false);
+      setNewEmail("");
+      setNewPass("");
+      setNewRole("user");
+      await refreshUsers();
+    } catch (e) {
+      console.error(e);
+      showToast({ type: "error", title: "Error", message: "No se pudo crear usuario." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetPassword = async (id) => {
+    try {
+      setLoading(true);
+      const r = await authFetch(`/api/users/${id}/reset-password`, { method: "POST" });
+      const d = await safeJson(r);
+      if (!r.ok) {
+        showToast({ type: "error", title: "Error", message: d.message || "No se pudo resetear" });
         return;
       }
       showToast({
         type: "success",
-        title: "Password reseteado",
-        message: `Nueva contraseña: ${data.newPassword}`,
+        title: "Password reseteada",
+        message: `Nueva: ${d.newPassword}`,
       });
-    } catch {
-      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar." });
+    } catch (e) {
+      console.error(e);
+      showToast({ type: "error", title: "Error", message: "No se pudo resetear." });
+    } finally {
+      setLoading(false);
     }
   };
 
   const toggleDisabled = async (u) => {
     try {
-      const res = await authFetch(`/api/users/${u.id}`, {
+      setLoading(true);
+      const r = await authFetch(`/api/users/${u.id}`, {
         method: "PATCH",
         body: JSON.stringify({ disabled: !u.disabled }),
       });
-      const data = await safeJson(res);
-      if (!res.ok) {
-        showToast({ type: "error", title: "Error", message: data.message || `HTTP ${res.status}` });
+      const d = await safeJson(r);
+      if (!r.ok) {
+        showToast({ type: "error", title: "Error", message: d.message || "No se pudo actualizar" });
         return;
       }
-      showToast({ type: "success", title: "Actualizado", message: `${u.email} ${!u.disabled ? "deshabilitado" : "habilitado"}.` });
-      refreshAll();
-    } catch {
-      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar." });
+      showToast({ type: "success", title: "Actualizado", message: u.email });
+      await refreshUsers();
+    } catch (e) {
+      console.error(e);
+      showToast({ type: "error", title: "Error", message: "No se pudo actualizar." });
+    } finally {
+      setLoading(false);
     }
   };
 
   const openCreditsModal = (u) => {
-    setCreditsTarget(u);
+    setCreditsUser(u);
     setCreditsAmount(10);
     setCreditsNote("");
-    setCreditsOpen(true);
+    setOpenCredits(true);
   };
 
   const grantCredits = async () => {
-    if (!creditsTarget) return;
-    const amount = Number(creditsAmount);
-    if (!Number.isInteger(amount)) {
-      showToast({ type: "error", title: "Amount inválido", message: "Debe ser entero (ej. 10 o -10)." });
+    if (!creditsUser) return;
+    const amt = Number(creditsAmount);
+    if (!Number.isInteger(amt)) {
+      showToast({ type: "error", title: "Monto inválido", message: "Debe ser entero." });
       return;
     }
+
     try {
-      const res = await authFetch(`/api/credits/grant`, {
+      setLoading(true);
+      const r = await authFetch("/api/credits/grant", {
         method: "POST",
         body: JSON.stringify({
-          userId: creditsTarget.id,
-          amount,
-          note: creditsNote,
+          userId: creditsUser.id,
+          amount: amt,
+          note: creditsNote || "",
         }),
       });
-      const data = await safeJson(res);
-      if (!res.ok) {
-        showToast({ type: "error", title: "Error", message: data.message || `HTTP ${res.status}` });
+      const d = await safeJson(r);
+      if (!r.ok) {
+        showToast({ type: "error", title: "Error", message: d.message || "No se pudo otorgar" });
         return;
       }
-      showToast({ type: "success", title: "Créditos actualizados", message: `${creditsTarget.email} (${data.user?.credits ?? "OK"})` });
-      setCreditsOpen(false);
-      refreshAll();
-    } catch {
-      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar." });
+
+      showToast({ type: "success", title: "Créditos actualizados", message: creditsUser.email });
+      setOpenCredits(false);
+      await Promise.all([refreshUsers(), refreshCreditLogs()]);
+    } catch (e) {
+      console.error(e);
+      showToast({ type: "error", title: "Error", message: "No se pudo otorgar créditos." });
+    } finally {
+      setLoading(false);
     }
   };
 
-  const createUser = async () => {
-    const em = newUserEmail.trim();
-    if (em.length < 5) {
-      showToast({ type: "error", title: "Email inválido", message: "Escribe un email válido." });
-      return;
+  // ====== LOGS filters handlers ======
+  const applyLogFilters = async () => {
+    const applied = { type: logType, range: logRange, email: logEmail };
+    setLogApplied(applied);
+    try {
+      setLoading(true);
+      await refreshLogs(applied);
+    } catch (e) {
+      console.error(e);
+      showToast({ type: "error", title: "Error", message: "No se pudieron cargar logs." });
+    } finally {
+      setLoading(false);
     }
-    if (newUserPass.trim().length < 6) {
-      showToast({ type: "error", title: "Password inválida", message: "Mínimo 6 caracteres." });
-      return;
-    }
+  };
 
-    // Solo superadmin debería poder crear admins (UI)
-    const role = isSuperAdmin ? newUserRole : "user";
+  const clearLogFilters = async () => {
+    setLogType("all");
+    setLogRange("7d");
+    setLogEmail("");
+    const applied = { type: "all", range: "7d", email: "" };
+    setLogApplied(applied);
 
     try {
-      const res = await authFetch(`/api/users`, {
-        method: "POST",
-        body: JSON.stringify({ email: em, password: newUserPass, role }),
-      });
-      const data = await safeJson(res);
-      if (!res.ok) {
-        showToast({ type: "error", title: "No se pudo crear", message: data.message || `HTTP ${res.status}` });
-        return;
-      }
-      showToast({ type: "success", title: "Usuario creado", message: `${data.user?.email || em}` });
-      setCreateOpen(false);
-      setNewUserEmail("");
-      setNewUserPass("");
-      setNewUserRole("user");
-      refreshAll();
-    } catch {
-      showToast({ type: "error", title: "Error de red", message: "No se pudo conectar." });
+      setLoading(true);
+      await refreshLogs(applied);
+    } catch (e) {
+      console.error(e);
+      showToast({ type: "error", title: "Error", message: "No se pudieron cargar logs." });
+    } finally {
+      setLoading(false);
     }
   };
 
-  // ===================== derived views =====================
+  // ====== DERIVED (dashboard, lists) ======
   const usersFiltered = useMemo(() => {
-    const q = userSearch.trim().toLowerCase();
-    if (!q) return users;
-    return (users || []).filter((u) => String(u.email || "").toLowerCase().includes(q));
-  }, [users, userSearch]);
-
-  const logsFiltered = useMemo(() => {
-    // se aplica cuando cambias applyFiltersKey (botón)
-    // Para no recalcular cada tecla si no quieres, pero igual es light.
-    const t = logType;
-    const r = logRange;
-    const em = logEmail.trim().toLowerCase();
-
-    return (logs || [])
-      .filter((l) => {
-        if (t !== "all" && String(l.type) !== t) return false;
-        if (!withinRange(l.createdAt, r)) return false;
-        if (em && !String(l.email || "").toLowerCase().includes(em)) return false;
-        return true;
-      })
-      .slice()
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyFiltersKey, logs]);
-
-  const creditLogsFiltered = useMemo(() => {
-    const em = creditEmail.trim().toLowerCase();
-    const list = (creditLogs || []).slice();
-    if (!em) return list;
-    return list.filter((x) => String(x.userEmail || "").toLowerCase().includes(em) || String(x.adminEmail || "").toLowerCase().includes(em));
-  }, [creditLogs, creditEmail]);
+    return users;
+  }, [users]);
 
   const dashboard = useMemo(() => {
-    const totalUsers = (users || []).length;
-    const totalCredits = sumCredits(users || []);
-    const consultas24h = (logs || []).filter((l) => withinRange(l.createdAt, "24h")).length;
+    const now = Date.now();
+    const dayAgo = now - 24 * 60 * 60 * 1000;
+    const logs24 = (logs || []).filter((l) => new Date(l.createdAt || 0).getTime() >= dayAgo);
 
     const top = {};
-    for (const l of (logs || []).filter((x) => withinRange(x.createdAt, "24h"))) {
-      const k = String(l.type || "unknown");
+    for (const l of logs24) {
+      const k = String(l.type || "otro");
       top[k] = (top[k] || 0) + 1;
     }
-    const topList = Object.entries(top).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const topArr = Object.entries(top)
+      .map(([k, v]) => ({ k, v }))
+      .sort((a, b) => b.v - a.v)
+      .slice(0, 6);
 
-    return { totalUsers, totalCredits, consultas24h, topList };
+    const creditsTotal = (users || []).reduce((a, u) => a + Number(u.credits || 0), 0);
+
+    return {
+      usersCount: (users || []).length,
+      creditsTotal,
+      logs24Count: logs24.length,
+      topArr,
+    };
   }, [users, logs]);
 
-  // ===================== UI sections =====================
-  const Header = ({ title, desc, right }) => (
-    <div style={{ marginBottom: 18 }}>
-      <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>DocuExpress</div>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 14 }}>
-        <div>
-          <h1 style={styles.h1}>{title}</h1>
-          {desc ? <div style={styles.subtitle}>{desc}</div> : null}
-        </div>
-        {right}
-      </div>
-    </div>
-  );
+  const filteredCreditLogs = useMemo(() => {
+    const q = creditEmail.trim().toLowerCase();
+    if (!q) return creditLogs || [];
+    return (creditLogs || []).filter((l) =>
+      String(l.userEmail || "").toLowerCase().includes(q)
+    );
+  }, [creditLogs, creditEmail]);
 
-  const SidebarSession = () => (
-    <div style={{ padding: 14, border: "1px solid #eef2ff", background: "#f8fafc", borderRadius: 18 }}>
-      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6, fontWeight: 900 }}>Sesión</div>
-      <div style={{ fontWeight: 950 }}>{me.email}</div>
-
-      <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <span style={styles.pill(me.role === "admin" ? "indigo" : "cyan")}>{me.role === "admin" ? "Admin" : "User"}</span>
-        {isSuperAdmin ? <span style={styles.pill("purple")}>Super Admin</span> : null}
-        <span style={styles.pill("cyan")}>{me.credits ?? 0} créditos</span>
-      </div>
-
-      <button onClick={onLogout} style={{ ...styles.btn("ghost"), width: "100%", marginTop: 12 }}>
-        Cerrar sesión
-      </button>
-    </div>
-  );
-
-  const SidebarLogin = () => (
-    <div style={{ padding: 14, border: "1px solid #e5e7eb", background: "#fff", borderRadius: 18 }}>
-      <div style={{ fontWeight: 950, marginBottom: 10 }}>Iniciar sesión</div>
-
-      <div style={{ marginBottom: 10 }}>
-        <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          style={styles.input}
-          autoComplete="username"
-        />
-      </div>
-
-      <div style={{ marginBottom: 10 }}>
-        <input
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Contraseña"
-          type="password"
-          style={styles.input}
-          autoComplete="current-password"
-        />
-      </div>
-
-      <button onClick={onLogin} style={{ ...styles.btn("primary"), width: "100%" }}>
-        Iniciar sesión
-      </button>
-
-      <div style={{ marginTop: 12, fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
-        <b>Demo:</b>
-        <div>Admin: admin@docuexpress.com / Admin123!</div>
-        <div>Cliente: cliente@docuexpress.com / Cliente123!</div>
-      </div>
-    </div>
-  );
-
-  const Sidebar = () => (
-    <aside style={styles.aside}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={styles.brand}>
-          Docu<span style={{ color: "#4f46e5" }}>Express</span>
-        </div>
-        <span style={styles.badgeSaas}>SaaS</span>
-      </div>
-
-      {isLogged ? <SidebarSession /> : <SidebarLogin />}
-
-      <div style={{ marginTop: 18 }}>
-        <div style={styles.sectionTitle}>Menú</div>
-
-        <button style={styles.navBtn(view === "consultar")} onClick={() => setView("consultar")}>
-          🔎 <span>CONSULTAR</span>
-        </button>
-
-        {isLogged && isAdmin ? (
-          <>
-            <button style={styles.navBtn(view === "dashboard")} onClick={() => setView("dashboard")}>
-              📊 <span>Dashboard</span>
-            </button>
-            <button style={styles.navBtn(view === "users")} onClick={() => setView("users")}>
-              👤 <span>Usuarios</span>
-            </button>
-            <button style={styles.navBtn(view === "logs")} onClick={() => setView("logs")}>
-              🧾 <span>Logs de consultas</span>
-            </button>
-            <button style={styles.navBtn(view === "creditlogs")} onClick={() => setView("creditlogs")}>
-              💳 <span>Logs de créditos</span>
-            </button>
-
-            <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-              <button style={styles.navBtn(false)} onClick={() => setCreateOpen(true)}>
-                ➕ <span>Crear usuario</span>
-              </button>
-
-              <button style={{ ...styles.navBtn(false), justifyContent: "center" }} onClick={refreshAll}>
-                🔄 <span>Actualizar</span>
-              </button>
+  // =============== LOGIN SCREEN (Fix paso 5 ya aplicado aquí) ===============
+  if (!me) {
+    return (
+      <div style={styles.page}>
+        <div style={{ ...styles.shell, gridTemplateColumns: "420px 1fr" }}>
+          <aside style={{ ...styles.sidebar }}>
+            <div style={styles.brand}>
+              <div style={styles.logo}>
+                Docu<span style={styles.logoAccent}>Express</span>
+              </div>
+              <span style={styles.pill}>SaaS</span>
             </div>
-          </>
-        ) : null}
 
-        <div style={{ marginTop: 14, fontSize: 12, color: "#64748b" }}>
-          Backend: <b>{BACKEND_URL}</b>
-        </div>
-      </div>
-    </aside>
-  );
+            <div style={{ ...styles.card, padding: 18 }}>
+              <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 14 }}>
+                Iniciar sesión
+              </div>
 
-  // ===================== views =====================
-  const ConsultView = () => (
-    <>
-      <Header
-        title="Consultar"
-        desc="Genera documentos del IMSS. Los PDFs se guardan por 24 horas y se descargan desde tu panel."
-        right={<span style={styles.pill("gray")}>PDFs duran 24h</span>}
-      />
+              {/* ✅ FIX: form onSubmit + preventDefault (ya no “te saca” al escribir) */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  onLogin();
+                }}
+              >
+                <div style={{ marginBottom: 12 }}>
+                  <input
+                    style={styles.input}
+                    placeholder="Email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="username"
+                  />
+                </div>
 
-      <div style={styles.card}>
-        <div style={styles.cardHeader}>
-          <div>
-            <div style={{ fontWeight: 950, letterSpacing: -0.3, fontSize: 18 }}>CONSULTAR</div>
-            <div style={{ color: "#64748b", fontSize: 13 }}>Elige el trámite, captura datos y genera el PDF.</div>
-          </div>
-          <span style={styles.pill("gray")}>PDFs duran 24h</span>
-        </div>
+                <div style={{ marginBottom: 12 }}>
+                  <input
+                    style={styles.input}
+                    placeholder="Contraseña"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                  />
+                </div>
 
-        <div style={styles.cardBody}>
-          {step === "cards" ? (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              {[
-                {
-                  key: "semanas",
-                  title: "Semanas cotizadas",
-                  desc: "Constancia de semanas cotizadas en el IMSS.",
-                  badge: "CURP + NSS",
-                },
-                {
-                  key: "asignacion",
-                  title: "Asignación / Localización NSS",
-                  desc: "Genera documentos de NSS (puede devolver 2 PDFs).",
-                  badge: "Solo CURP • 2 PDFs",
-                },
-                {
-                  key: "vigencia",
-                  title: "Vigencia de derechos",
-                  desc: "Constancia de vigencia de derechos.",
-                  badge: "CURP + NSS",
-                },
-                {
-                  key: "noderecho",
-                  title: "No derechohabiencia",
-                  desc: "Constancia de no derecho al servicio médico.",
-                  badge: "Solo CURP (según proveedor)",
-                },
-              ].map((c) => (
                 <button
-                  key={c.key}
-                  onClick={() => {
-                    setType(c.key);
-                    setStep("form");
-                    setGeneratedFiles([]);
-                  }}
-                  style={{
-                    textAlign: "left",
-                    padding: 18,
-                    borderRadius: 16,
-                    border: "1px solid #e5e7eb",
-                    background: "#fff",
-                    cursor: "pointer",
-                    transition: "transform .08s ease",
-                  }}
+                  type="submit"
+                  style={{ ...styles.btn, ...styles.btnPrimary, width: "100%" }}
+                  disabled={loading}
                 >
-                  <div style={{ fontWeight: 950, fontSize: 16, marginBottom: 6 }}>{c.title}</div>
-                  <div style={{ color: "#64748b", fontSize: 13, lineHeight: 1.4 }}>{c.desc}</div>
-                  <div style={{ marginTop: 12 }}>
-                    <span style={styles.pill("gray")}>{c.badge}</span>
-                  </div>
+                  {loading ? "Entrando..." : "Iniciar sesión"}
                 </button>
-              ))}
-            </div>
-          ) : (
-            <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                <div style={{ color: "#64748b", fontSize: 13 }}>
-                  Trámite: <b style={{ color: "#0f172a" }}>{typeLabel}</b>
-                </div>
-                <button onClick={() => setStep("cards")} style={styles.btn("ghost")}>
-                  ← Atrás
-                </button>
-              </div>
+              </form>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
-                <div>
-                  <div style={styles.label}>CURP</div>
-                  <input
-                    value={curp}
-                    onChange={(e) => setCurp(e.target.value.toUpperCase())}
-                    placeholder="Ej. MAGC790705HTLRNR03"
-                    style={styles.input}
-                  />
-                </div>
-
-                <div>
-                  <div style={styles.label}>
-                    NSS {type === "semanas" || type === "vigencia" ? "(obligatorio)" : "(opcional)"}
-                  </div>
-                  <input
-                    value={nss}
-                    onChange={(e) => setNss(e.target.value)}
-                    placeholder={type === "semanas" || type === "vigencia" ? "11 dígitos" : "Opcional"}
-                    style={styles.input}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <button onClick={pasteCurpNss} style={styles.btn("ghost")}>
-                  📋 Pegar CURP/NSS
-                </button>
-
-                <button onClick={onGenerate} disabled={!isLogged || generating} style={styles.btn(generating ? "ghost" : "primary")}>
-                  {generating ? "Generando…" : "Generar documento"}
-                </button>
-              </div>
-
-              <div style={{ marginTop: 16, borderTop: "1px solid #eef2f7", paddingTop: 14 }}>
-                {generatedFiles.length === 0 ? (
-                  <div style={{ color: "#64748b", fontSize: 13 }}>
-                    Aquí aparecerán los PDFs para descargar cuando generes un documento.
-                  </div>
-                ) : (
-                  <div style={{ display: "grid", gap: 10 }}>
-                    {generatedFiles.map((f) => (
-                      <div
-                        key={f.fileId}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 12,
-                          padding: 12,
-                          borderRadius: 16,
-                          border: "1px solid #e5e7eb",
-                          background: "#f8fafc",
-                        }}
-                      >
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {f.filename || "documento.pdf"}
-                          </div>
-                          <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
-                            {f.expiresAt ? `Expira: ${formatDate(f.expiresAt)}` : "* Si ya pasó 24h, el backend pudo haberlo borrado."}
-                          </div>
-                        </div>
-
-                        <PdfButton
-                          state={downloadState[f.fileId] || "ready"}
-                          onClick={() => downloadFile(f.fileId, f.filename)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <div style={{ marginTop: 14, color: "#64748b", fontSize: 12 }}>
+                <div style={{ fontWeight: 900, marginBottom: 6 }}>Demo:</div>
+                <div>Admin: admin@docuexpress.com / Admin123!</div>
+                <div>Cliente: cliente@docuexpress.com / Cliente123!</div>
               </div>
             </div>
-          )}
-        </div>
-      </div>
-    </>
-  );
 
-  const DashboardView = () => (
-    <>
-      <Header title="Dashboard" desc="Resumen rápido de tu operación." right={<button style={styles.btn("ghost")} onClick={refreshAll}>↻ Actualizar</button>} />
+            <div style={{ marginTop: 18, fontSize: 12, color: "#64748b" }}>
+              Backend:{" "}
+              <b style={{ color: "#0f172a" }}>
+                {BACKEND_URL}
+              </b>
+            </div>
+          </aside>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-        <StatCard title="Usuarios" value={loadingUsers ? "—" : String(dashboard.totalUsers)} icon="👥" />
-        <StatCard title="Créditos totales" value={loadingUsers ? "—" : String(dashboard.totalCredits)} icon="💳" />
-        <StatCard title="Consultas 24h" value={loadingLogs ? "—" : String(dashboard.consultas24h)} icon="🧾" />
-        <StatCard title="Rol" value={isSuperAdmin ? "Super Admin" : "Admin"} icon="🛡️" />
-      </div>
+          <main style={{ ...styles.main, display: "grid", placeItems: "center" }}>
+            <div style={{ maxWidth: 740 }}>
+              <div style={{ ...styles.pill, marginBottom: 14 }}>DocuExpress</div>
+              <div style={styles.h1}>Consultar</div>
+              <div style={styles.sub}>
+                Genera documentos del IMSS. Los PDFs se guardan por 24 horas y se descargan desde tu panel.
+              </div>
 
-      <div style={{ ...styles.card, marginTop: 16 }}>
-        <div style={styles.cardHeader}>
-          <div>
-            <div style={{ fontWeight: 950 }}>Top trámites (24h)</div>
-            <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>Los trámites más utilizados en las últimas 24 horas.</div>
-          </div>
-          <button style={styles.btn("ghost")} onClick={refreshAll}>↻ Actualizar</button>
-        </div>
-        <div style={styles.cardBody}>
-          {dashboard.topList.length === 0 ? (
-            <div style={{ color: "#64748b" }}>Sin datos aún (haz algunas consultas).</div>
-          ) : (
-            <div style={{ display: "grid", gap: 10 }}>
-              {dashboard.topList.map(([k, v]) => (
-                <div key={k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", background: "#fff" }}>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <span style={styles.pill("gray")}>{k}</span>
-                    <span style={{ color: "#64748b", fontSize: 13 }}>Solicitudes</span>
-                  </div>
-                  <div style={{ fontWeight: 950 }}>{v}</div>
+              <div style={{ height: 22 }} />
+
+              <div style={{ ...styles.card, padding: 18 }}>
+                <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 6 }}>
+                  ¿Qué incluye?
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </>
-  );
-
-  const UsersView = () => (
-    <>
-      <Header title="Usuarios" desc="Como admin solo ves tus usuarios." />
-
-      <div style={styles.card}>
-        <div style={styles.cardHeader}>
-          <div>
-            <div style={{ fontWeight: 950 }}>Usuarios</div>
-            <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>
-              Gestiona usuarios, deshabilita, resetea password y asigna créditos.
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <input
-              value={userSearch}
-              onChange={(e) => setUserSearch(e.target.value)}
-              placeholder="Buscar email..."
-              style={{ ...styles.input, width: 220 }}
-            />
-            <button style={styles.btn("ghost")} onClick={refreshAll} title="Refrescar">↻</button>
-            <button style={styles.btn("primary")} onClick={() => setCreateOpen(true)}>
-              ➕ Crear
-            </button>
-          </div>
-        </div>
-
-        <div style={styles.cardBody}>
-          {loadingUsers ? (
-            <div style={{ color: "#64748b" }}>Cargando usuarios…</div>
-          ) : usersFiltered.length === 0 ? (
-            <div style={{ color: "#64748b" }}>No hay usuarios.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 12 }}>
-              {usersFiltered.map((u) => (
-                <div
-                  key={u.id}
-                  style={{
-                    padding: 14,
-                    borderRadius: 18,
-                    border: "1px solid #e5e7eb",
-                    background: "#fff",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 14,
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {u.email}
-                    </div>
-                    <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
-                      <span style={styles.pill(u.role === "admin" ? "indigo" : "cyan")}>{u.role}</span>
-                      <span style={styles.pill(u.disabled ? "red" : "green")}>{u.disabled ? "Inactivo" : "Activo"}</span>
-                      <span style={styles.pill("gray")}>Créditos: {u.credits ?? 0}</span>
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <button style={styles.btn("ghost")} onClick={() => openCreditsModal(u)}>💳 Créditos</button>
-                    <button style={styles.btn("ghost")} onClick={() => resetPassword(u.id)}>🔑 Reset</button>
-                    <button style={styles.btn(u.disabled ? "soft" : "ghost")} onClick={() => toggleDisabled(u)}>
-                      ⛔ {u.disabled ? "Habilitar" : "Deshabilitar"}
-                    </button>
-
-                    {/* Si quieres cambiar rol solo para superadmin (UI) */}
-                    {isSuperAdmin ? (
-                      <button
-                        style={styles.btn("ghost")}
-                        onClick={async () => {
-                          const nextRole = u.role === "admin" ? "user" : "admin";
-                          try {
-                            const res = await authFetch(`/api/users/${u.id}`, { method: "PATCH", body: JSON.stringify({ role: nextRole }) });
-                            const data = await safeJson(res);
-                            if (!res.ok) {
-                              showToast({ type: "error", title: "Error", message: data.message || `HTTP ${res.status}` });
-                              return;
-                            }
-                            showToast({ type: "success", title: "Rol actualizado", message: `${u.email} → ${nextRole}` });
-                            refreshAll();
-                          } catch {
-                            showToast({ type: "error", title: "Error de red", message: "No se pudo conectar." });
-                          }
-                        }}
-                      >
-                        🛡️ Rol
-                      </button>
-                    ) : null}
-                  </div>
+                <div style={{ color: "#64748b", fontSize: 14 }}>
+                  • Semanas cotizadas • Asignación/Localización NSS • Vigencia de derechos • No derechohabiencia
                 </div>
-              ))}
+              </div>
             </div>
-          )}
+          </main>
         </div>
+
+        <Toast toast={toast} onClose={() => setToast(null)} />
       </div>
-    </>
-  );
+    );
+  }
 
-  const LogsView = () => (
-    <>
-      <Header
-        title="Logs de consultas"
-        desc="Filtra por tipo, fechas y email."
-        right={
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <span style={styles.pill("indigo")}>{isSuperAdmin ? "Super Admin" : "Admin"}</span>
-            <button style={styles.btn("ghost")} onClick={refreshAll}>Refrescar</button>
-          </div>
-        }
-      />
+  // =============== MAIN SHELL ===============
+  const isAdmin = me?.role === "admin";
 
-      <div style={styles.card}>
-        <div style={styles.cardHeader}>
-          <div>
-            <div style={{ fontWeight: 950 }}>Consultas</div>
-            <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>Logs globales (con scope por rol).</div>
+  return (
+    <div style={styles.page}>
+      <div style={styles.shell}>
+        {/* SIDEBAR */}
+        <aside style={styles.sidebar}>
+          <div style={styles.brand}>
+            <div style={styles.logo}>
+              Docu<span style={styles.logoAccent}>Express</span>
+            </div>
+            <span style={styles.pill}>SaaS</span>
           </div>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ ...styles.card, padding: 16 }}>
+            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>Sesión</div>
+            <div style={{ fontWeight: 900, marginTop: 4 }}>{me.email}</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              <span style={styles.badge(me.role === "admin" ? "admin" : "user")}>
+                {me.role === "admin" ? "Admin" : "User"}
+              </span>
+              <span style={styles.badge("gray")}>{me.credits ?? 0} créditos</span>
+            </div>
             <button
-              style={styles.btn("ghost")}
-              onClick={() => {
-                setApplyFiltersKey((x) => x + 1);
-              }}
+              onClick={logout}
+              style={{ ...styles.btn, width: "100%", marginTop: 12 }}
             >
-              Aplicar filtros
-            </button>
-            <button
-              style={styles.btn("ghost")}
-              onClick={() => {
-                setLogType("all");
-                setLogRange("7d");
-                setLogEmail("");
-                setApplyFiltersKey((x) => x + 1);
-              }}
-            >
-              Limpiar
+              Cerrar sesión
             </button>
           </div>
-        </div>
 
-        <div style={styles.cardBody}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-            <div>
-              <div style={styles.label}>Tipo</div>
-              <select value={logType} onChange={(e) => setLogType(e.target.value)} style={styles.input}>
-                <option value="all">Todos</option>
-                <option value="semanas">semanas</option>
-                <option value="asignacion">asignacion</option>
-                <option value="vigencia">vigencia</option>
-                <option value="noderecho">noderecho</option>
-              </select>
-            </div>
-            <div>
-              <div style={styles.label}>Rango rápido</div>
-              <select value={logRange} onChange={(e) => setLogRange(e.target.value)} style={styles.input}>
-                <option value="24h">Últimas 24h</option>
-                <option value="7d">Últimos 7 días</option>
-                <option value="30d">Últimos 30 días</option>
-                <option value="all">Todo</option>
-              </select>
-            </div>
-            <div>
-              <div style={styles.label}>Buscar por email</div>
-              <input value={logEmail} onChange={(e) => setLogEmail(e.target.value)} placeholder="correo@..." style={styles.input} />
-            </div>
+          <div style={styles.navGroupTitle}>Menú</div>
+
+          <button style={styles.navBtn(view === "consultar")} onClick={() => setView("consultar")}>
+            <span>🔎&nbsp; CONSULTAR</span>
+            <span style={{ opacity: 0.8 }}>{view === "consultar" ? "●" : ""}</span>
+          </button>
+
+          {isAdmin && (
+            <>
+              <button style={styles.navBtn(view === "dashboard")} onClick={() => setView("dashboard")}>
+                <span>📊&nbsp; Dashboard</span>
+                <span style={{ opacity: 0.8 }}>{view === "dashboard" ? "●" : ""}</span>
+              </button>
+
+              <button style={styles.navBtn(view === "users")} onClick={() => setView("users")}>
+                <span>👤&nbsp; Usuarios</span>
+                <span style={{ opacity: 0.8 }}>{view === "users" ? "●" : ""}</span>
+              </button>
+
+              <button style={styles.navBtn(view === "logs")} onClick={() => setView("logs")}>
+                <span>🧾&nbsp; Logs de consultas</span>
+                <span style={{ opacity: 0.8 }}>{view === "logs" ? "●" : ""}</span>
+              </button>
+
+              <button style={styles.navBtn(view === "creditlogs")} onClick={() => setView("creditlogs")}>
+                <span>💳&nbsp; Logs de créditos</span>
+                <span style={{ opacity: 0.8 }}>{view === "creditlogs" ? "●" : ""}</span>
+              </button>
+
+              <div style={{ height: 6 }} />
+
+              <button
+                style={{ ...styles.btn, width: "100%", marginTop: 10, ...styles.btnSoft }}
+                onClick={() => setOpenCreate(true)}
+              >
+                ➕ Crear usuario
+              </button>
+
+              <button
+                style={{ ...styles.btn, width: "100%", marginTop: 10 }}
+                onClick={refreshAll}
+                disabled={loading}
+              >
+                {loading ? "Actualizando..." : "🔄 Actualizar"}
+              </button>
+            </>
+          )}
+
+          <div style={{ marginTop: 18, fontSize: 12, color: "#64748b" }}>
+            Backend: <b style={{ color: "#0f172a" }}>{BACKEND_URL}</b>
           </div>
+        </aside>
 
-          {loadingLogs ? (
-            <div style={{ color: "#64748b" }}>Cargando logs…</div>
-          ) : logsFiltered.length === 0 ? (
-            <div style={{ color: "#64748b" }}>Sin logs para esos filtros.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 12 }}>
-              {logsFiltered.slice(0, 60).map((l) => {
-                const count = (l.files || []).length;
-                const curpChip = l.curp ? String(l.curp).slice(0, 18) : "";
-                return (
-                  <div key={l.id} style={{ padding: 14, borderRadius: 18, border: "1px solid #e5e7eb", background: "#fff" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                      <div style={{ fontWeight: 950 }}>{l.email}</div>
-                      <div style={{ fontSize: 12, color: "#64748b" }}>{formatDate(l.createdAt)}</div>
+        {/* MAIN */}
+        <main style={styles.main}>
+          {/* CONSULTAR */}
+          {view === "consultar" && (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <div>
+                  <div style={{ ...styles.pill, marginBottom: 10 }}>DocuExpress</div>
+                  <div style={styles.h2}>Consultar</div>
+                  <div style={styles.sub}>
+                    Genera documentos del IMSS. Los PDFs se guardan por 24 horas y se descargan desde tu panel.
+                  </div>
+                </div>
+                <div>
+                  <span style={styles.pill}>PDFs duran 24h</span>
+                </div>
+              </div>
+
+              <div style={{ height: 16 }} />
+
+              <div style={{ ...styles.card }}>
+                <div style={styles.cardHeader}>
+                  <div>
+                    <div style={{ fontWeight: 1000 }}>CONSULTAR</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>
+                      Elige el trámite, captura datos y genera el PDF.
                     </div>
+                  </div>
+                  <span style={styles.pill}>PDFs duran 24h</span>
+                </div>
 
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
-                      <span style={styles.pill("gray")}>{l.type}</span>
-                      {curpChip ? <span style={styles.pill("cyan")}>{curpChip}</span> : null}
-                      {l.nss ? <span style={styles.pill("gray")}>{l.nss}</span> : null}
-                      <span style={styles.pill("green")}>{count} PDF(s)</span>
-                    </div>
-
-                    {/* Archivos */}
-                    <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                      {(l.files || []).map((f) => (
-                        <div
-                          key={f.fileId}
+                <div style={styles.cardBody}>
+                  {step === "cards" ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                      {TRAMITES.map((t) => (
+                        <button
+                          key={t.key}
+                          onClick={() => {
+                            setType(t.key);
+                            setFiles([]);
+                            setStep("form");
+                          }}
                           style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: 12,
-                            padding: 12,
+                            textAlign: "left",
+                            padding: 16,
                             borderRadius: 16,
-                            border: "1px solid #e5e7eb",
-                            background: "#f8fafc",
+                            border: "1px solid #e9ecf5",
+                            background: "#fff",
+                            cursor: "pointer",
                           }}
                         >
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                              {f.filename || "documento.pdf"}
-                            </div>
-                            <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
-                              {f.expiresAt ? `Expira: ${formatDate(f.expiresAt)}` : "* Si ya pasó 24h, el backend pudo haberlo borrado."}
-                            </div>
+                          <div style={{ fontWeight: 1000 }}>{t.title}</div>
+                          <div style={{ fontSize: 13, color: "#64748b", marginTop: 6 }}>{t.desc}</div>
+                          <div style={{ marginTop: 10 }}>
+                            <span style={styles.badge("gray")}>{t.meta}</span>
                           </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                        <div style={{ fontSize: 14, color: "#475569" }}>
+                          Trámite: <b>{selectedTramite.title}</b>
+                        </div>
+                        <button
+                          onClick={() => setStep("cards")}
+                          style={{ ...styles.btn, padding: "10px 14px" }}
+                        >
+                          ← Atrás
+                        </button>
+                      </div>
 
-                          <PdfButton state={downloadState[f.fileId] || "ready"} onClick={() => downloadFile(f.fileId, f.filename)} />
+                      <div style={{ height: 16 }} />
+
+                      <div style={styles.inputRow}>
+                        <div>
+                          <div style={styles.label}>CURP</div>
+                          <input
+                            style={styles.input}
+                            value={curp}
+                            onChange={(e) => setCurp(e.target.value.toUpperCase())}
+                            placeholder="CAPTURA CURP"
+                          />
+                        </div>
+
+                        <div>
+                          <div style={styles.label}>
+                            NSS {selectedTramite.requireNss ? "(obligatorio)" : "(opcional)"}
+                          </div>
+                          <input
+                            style={styles.input}
+                            value={nss}
+                            onChange={(e) => setNss(e.target.value)}
+                            placeholder="11 dígitos"
+                            disabled={!selectedTramite.requireNss && type === "nss"}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ height: 12 }} />
+
+                      <div style={styles.inputRow}>
+                        <button
+                          ref={pasteBtnRef}
+                          style={{ ...styles.btn, display: "flex", justifyContent: "center", gap: 10 }}
+                          onClick={async () => {
+                            try {
+                              const text = await navigator.clipboard.readText();
+                              // Soporta pegar "CURP NSS" o "CURP|NSS"
+                              const parts = String(text || "")
+                                .replace(/\n/g, " ")
+                                .replace(/\|/g, " ")
+                                .trim()
+                                .split(/\s+/);
+                              if (parts[0]) setCurp(parts[0].toUpperCase());
+                              if (parts[1]) setNss(parts[1]);
+                              showToast({ type: "info", title: "Pegado", message: "Datos pegados." });
+                            } catch {
+                              showToast({
+                                type: "error",
+                                title: "No se pudo pegar",
+                                message: "Tu navegador bloqueó el portapapeles.",
+                              });
+                            }
+                          }}
+                        >
+                          📋 Pegar CURP/NSS
+                        </button>
+
+                        <button
+                          style={{ ...styles.btn, ...styles.btnPrimary }}
+                          onClick={generate}
+                          disabled={loading}
+                        >
+                          {loading ? "Generando..." : "Generar documento"}
+                        </button>
+                      </div>
+
+                      <div style={{ height: 14 }} />
+                      <div style={{ fontSize: 13, color: "#64748b" }}>
+                        Aquí aparecerán los PDFs para descargar cuando generes un documento.
+                      </div>
+
+                      <div style={{ height: 14 }} />
+
+                      {files?.length ? (
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {files.map((f) => {
+                            const st = dl[f.fileId] || "idle";
+                            return (
+                              <div
+                                key={f.fileId}
+                                style={{
+                                  border: "1px solid #edf1fb",
+                                  borderRadius: 16,
+                                  padding: 14,
+                                  background: "#fbfcff",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  gap: 12,
+                                }}
+                              >
+                                <div>
+                                  <div style={{ fontWeight: 900, fontSize: 14 }}>
+                                    {buildNiceFilename({ type, curp })}
+                                  </div>
+                                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
+                                    {f.expiresAt ? `Expira: ${fmtDate(f.expiresAt)}` : "Disponible para descargar"}
+                                  </div>
+                                </div>
+
+                                <button
+                                  onClick={() => download(f.fileId, f.filename)}
+                                  disabled={st === "downloading"}
+                                  style={{
+                                    ...styles.btn,
+                                    ...styles.btnSoft,
+                                    minWidth: 110,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: 8,
+                                    opacity: st === "downloading" ? 0.7 : 1,
+                                    cursor: st === "downloading" ? "not-allowed" : "pointer",
+                                  }}
+                                >
+                                  {st === "downloading" ? "Descargando..." : "PDF"}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* DASHBOARD */}
+          {view === "dashboard" && isAdmin && (
+            <>
+              <div style={{ ...styles.pill, marginBottom: 10 }}>DocuExpress</div>
+              <div style={styles.h2}>Dashboard</div>
+              <div style={styles.sub}>Resumen rápido de tu operación.</div>
+
+              <div style={{ height: 16 }} />
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+                <StatCard title="Usuarios" value={dashboard.usersCount} right="👥" />
+                <StatCard title="Créditos totales" value={dashboard.creditsTotal} right="💳" />
+                <StatCard title="Consultas 24h" value={dashboard.logs24Count} right="🧾" />
+                <StatCard title="Rol" value={me.role === "admin" ? "Admin" : "User"} right="🛡️" />
+              </div>
+
+              <div style={{ height: 14 }} />
+
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <div>
+                    <div style={{ fontWeight: 1000 }}>Top trámites (24h)</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>
+                      Los trámites más utilizados en las últimas 24 horas.
+                    </div>
+                  </div>
+                  <button style={styles.btn} onClick={refreshAll} disabled={loading}>
+                    ⟳ Actualizar
+                  </button>
+                </div>
+
+                <div style={styles.cardBody}>
+                  {!dashboard.topArr.length ? (
+                    <div style={{ color: "#64748b" }}>Sin datos aún (haz algunas consultas).</div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {dashboard.topArr.map((x) => (
+                        <div
+                          key={x.k}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            border: "1px solid #edf1fb",
+                            borderRadius: 14,
+                            padding: 12,
+                            background: "#fbfcff",
+                          }}
+                        >
+                          <div style={{ fontWeight: 900 }}>{labelForType(x.k)}</div>
+                          <span style={styles.badge("gray")}>{x.v}</span>
                         </div>
                       ))}
                     </div>
-                  </div>
-                );
-              })}
-              {logsFiltered.length > 60 ? (
-                <div style={{ fontSize: 12, color: "#64748b" }}>Mostrando 60 de {logsFiltered.length} (para performance).</div>
-              ) : null}
-            </div>
+                  )}
+                </div>
+              </div>
+            </>
           )}
-        </div>
-      </div>
-    </>
-  );
 
-  const CreditLogsView = () => (
-    <>
-      <Header title="Logs de créditos" desc="Historial de otorgamientos y ajustes de créditos." />
+          {/* USERS */}
+          {view === "users" && isAdmin && (
+            <>
+              <div style={{ ...styles.pill, marginBottom: 10 }}>DocuExpress</div>
+              <div style={styles.h2}>Usuarios</div>
+              <div style={styles.sub}>Como admin solo ves tus usuarios.</div>
 
-      <div style={styles.card}>
-        <div style={styles.cardHeader}>
-          <div>
-            <div style={{ fontWeight: 950 }}>Créditos</div>
-            <div style={{ color: "#64748b", fontSize: 13, marginTop: 6 }}>Registros de cambios de créditos.</div>
-          </div>
+              <div style={{ height: 16 }} />
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <input
-              value={creditEmail}
-              onChange={(e) => setCreditEmail(e.target.value)}
-              placeholder="Filtrar por email..."
-              style={{ ...styles.input, width: 220 }}
-            />
-            <button style={styles.btn("ghost")} onClick={refreshAll}>↻</button>
-          </div>
-        </div>
-
-        <div style={styles.cardBody}>
-          {loadingCreditLogs ? (
-            <div style={{ color: "#64748b" }}>Cargando logs de créditos…</div>
-          ) : creditLogsFiltered.length === 0 ? (
-            <div style={{ color: "#64748b" }}>Sin logs de créditos.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 12 }}>
-              {creditLogsFiltered.slice(0, 80).map((x) => (
-                <div key={x.id} style={{ padding: 14, borderRadius: 18, border: "1px solid #e5e7eb", background: "#fff" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <div style={{ fontWeight: 950, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {x.userEmail}
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <div>
+                    <div style={{ fontWeight: 1000 }}>Usuarios</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>
+                      Gestiona usuarios, deshabilita, resetea password y asigna créditos.
                     </div>
-                    <div style={{ fontSize: 12, color: "#64748b" }}>{formatDate(x.createdAt)}</div>
                   </div>
 
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
-                    <span style={styles.pill("gray")}>Admin: {x.adminEmail}</span>
-                    <span style={styles.pill(x.delta >= 0 ? "green" : "red")}>Δ {x.delta}</span>
-                    <span style={styles.pill("cyan")}>
-                      {x.before} → {x.after}
-                    </span>
-                    {x.note ? <span style={styles.pill("gray")}>Nota: {x.note}</span> : null}
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button style={styles.btn} onClick={refreshUsers} disabled={loading}>
+                      ⟳
+                    </button>
+                    <button style={{ ...styles.btn, ...styles.btnPrimary }} onClick={() => setOpenCreate(true)}>
+                      ➕ Crear
+                    </button>
                   </div>
                 </div>
-              ))}
-              {creditLogsFiltered.length > 80 ? (
-                <div style={{ fontSize: 12, color: "#64748b" }}>Mostrando 80 de {creditLogsFiltered.length} (para performance).</div>
-              ) : null}
-            </div>
+
+                <div style={styles.cardBody}>
+                  {!usersFiltered.length ? (
+                    <div style={{ color: "#64748b" }}>Sin usuarios.</div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 12 }}>
+                      {usersFiltered.map((u) => (
+                        <div
+                          key={u.id}
+                          style={{
+                            border: "1px solid #edf1fb",
+                            borderRadius: 16,
+                            padding: 14,
+                            background: "#fff",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 14,
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 1000 }}>{u.email}</div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                              <span style={styles.badge(u.role === "admin" ? "admin" : "user")}>
+                                {u.role}
+                              </span>
+                              <span style={styles.badge(u.disabled ? "warn" : "ok")}>
+                                {u.disabled ? "Deshabilitado" : "Activo"}
+                              </span>
+                              <span style={styles.badge("gray")}>Créditos: {u.credits ?? 0}</span>
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                            <button style={{ ...styles.btn, ...styles.btnSoft }} onClick={() => openCreditsModal(u)}>
+                              💳 Créditos
+                            </button>
+                            <button style={styles.btn} onClick={() => resetPassword(u.id)}>
+                              🔑 Reset
+                            </button>
+                            <button style={styles.btn} onClick={() => toggleDisabled(u)}>
+                              🚫 {u.disabled ? "Habilitar" : "Deshabilitar"}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
           )}
-        </div>
-      </div>
-    </>
-  );
 
-  // ===================== render main =====================
-  return (
-    <div style={styles.page}>
-      <Toast toast={toast} onClose={() => setToast(null)} />
+          {/* LOGS */}
+          {view === "logs" && isAdmin && (
+            <>
+              <div style={{ ...styles.pill, marginBottom: 10 }}>DocuExpress</div>
+              <div style={styles.h2}>Logs de consultas</div>
+              <div style={styles.sub}>Filtra por tipo, fechas y email.</div>
 
-      <div style={styles.shell}>
-        <Sidebar />
+              <div style={{ height: 16 }} />
 
-        <main style={styles.main}>
-          <div style={{ maxWidth: 1080, margin: "0 auto" }}>
-            {!isLogged ? (
-              <>
-                <Header title="Consultar" desc="Inicia sesión para generar y descargar tus PDFs desde el panel." />
-                <div style={{ color: "#64748b", fontSize: 13 }}>
-                  Si ya configuraste <b>VITE_BACKEND_URL</b> en Vercel, aquí debe apuntar a tu Render.
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <div>
+                    <div style={{ fontWeight: 1000 }}>Consultas</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>
+                      Logs globales (con scope por rol).
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button style={styles.btn} onClick={applyLogFilters} disabled={loading}>
+                      Aplicar filtros
+                    </button>
+                    <button style={styles.btn} onClick={clearLogFilters} disabled={loading}>
+                      Limpiar
+                    </button>
+                  </div>
                 </div>
-              </>
-            ) : (
-              <>
-                {view === "consultar" && <ConsultView />}
-                {view === "dashboard" && isAdmin && <DashboardView />}
-                {view === "users" && isAdmin && <UsersView />}
-                {view === "logs" && <LogsView />}
-                {view === "creditlogs" && isAdmin && <CreditLogsView />}
-              </>
-            )}
-          </div>
+
+                <div style={styles.cardBody}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                    <div>
+                      <div style={styles.label}>Tipo</div>
+                      <select
+                        style={styles.input}
+                        value={logType}
+                        onChange={(e) => setLogType(e.target.value)}
+                      >
+                        <option value="all">Todos</option>
+                        <option value="semanas">Semanas</option>
+                        <option value="nss">NSS</option>
+                        <option value="vigencia">Vigencia</option>
+                        <option value="noderechohabiencia">No derechohabiencia</option>
+                      </select>
+                    </div>
+                    <div>
+                      <div style={styles.label}>Rango rápido</div>
+                      <select
+                        style={styles.input}
+                        value={logRange}
+                        onChange={(e) => setLogRange(e.target.value)}
+                      >
+                        <option value="24h">Últimas 24h</option>
+                        <option value="7d">Últimos 7 días</option>
+                        <option value="30d">Últimos 30 días</option>
+                        <option value="all">Todo</option>
+                      </select>
+                    </div>
+                    <div>
+                      <div style={styles.label}>Buscar por email</div>
+                      <input
+                        style={styles.input}
+                        value={logEmail}
+                        onChange={(e) => setLogEmail(e.target.value)}
+                        placeholder="correo@..."
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ height: 14 }} />
+
+                  {!logs?.length ? (
+                    <div style={{ color: "#64748b" }}>Sin logs para esos filtros.</div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 12 }}>
+                      {logs.map((l, idx) => {
+                        const file = (l.files || [])[0];
+                        const fileId = file?.fileId || l.fileId;
+                        const showPdf = !!fileId;
+
+                        return (
+                          <div
+                            key={l.id || idx}
+                            style={{
+                              border: "1px solid #edf1fb",
+                              borderRadius: 16,
+                              padding: 14,
+                              background: "#fff",
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                              <div style={{ fontWeight: 1000 }}>{l.email || "—"}</div>
+                              <div style={{ color: "#64748b", fontSize: 12 }}>{fmtDate(l.createdAt)}</div>
+                            </div>
+
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                              <span style={styles.badge("gray")}>{labelForType(l.type)}</span>
+                              {l.curp ? <span style={styles.badge("user")}>{l.curp}</span> : null}
+                              {l.nss ? <span style={styles.badge("gray")}>{l.nss}</span> : null}
+                              {l.files?.length ? <span style={styles.badge("ok")}>{l.files.length} PDF(s)</span> : null}
+                            </div>
+
+                            <div
+                              style={{
+                                marginTop: 12,
+                                background: "#fbfcff",
+                                border: "1px solid #edf1fb",
+                                borderRadius: 14,
+                                padding: 12,
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                gap: 12,
+                              }}
+                            >
+                              <div style={{ fontWeight: 900, fontSize: 13, color: "#0f172a" }}>
+                                {buildNiceFilename({ type: l.type, curp: l.curp })}
+                                <div style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>
+                                  {l.expiresAt ? `Expira: ${fmtDate(l.expiresAt)}` : "Disponible"}
+                                </div>
+                              </div>
+
+                              {showPdf ? (
+                                (() => {
+                                  const st = dl[fileId] || "idle";
+                                  return (
+                                    <button
+                                      onClick={() => download(fileId, file?.filename)}
+                                      disabled={st === "downloading"}
+                                      style={{
+                                        ...styles.btn,
+                                        ...styles.btnSoft,
+                                        minWidth: 110,
+                                        opacity: st === "downloading" ? 0.7 : 1,
+                                      }}
+                                    >
+                                      {st === "downloading" ? "Descargando..." : "PDF"}
+                                    </button>
+                                  );
+                                })()
+                              ) : (
+                                <span style={styles.badge("warn")}>Sin PDF</span>
+                              )}
+                            </div>
+
+                            <div style={{ marginTop: 10, fontSize: 12, color: "#64748b" }}>
+                              * Si ya pasó 24h, el backend puede haberlo borrado.
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* CREDIT LOGS */}
+          {view === "creditlogs" && isAdmin && (
+            <>
+              <div style={{ ...styles.pill, marginBottom: 10 }}>DocuExpress</div>
+              <div style={styles.h2}>Logs de créditos</div>
+              <div style={styles.sub}>Historial de otorgamientos y ajustes de créditos.</div>
+
+              <div style={{ height: 16 }} />
+
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <div>
+                    <div style={{ fontWeight: 1000 }}>Créditos</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>
+                      Registros de cambios de créditos.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <input
+                      style={{ ...styles.input, width: 260 }}
+                      placeholder="Filtrar por email..."
+                      value={creditEmail}
+                      onChange={(e) => setCreditEmail(e.target.value)}
+                    />
+                    <button style={styles.btn} onClick={refreshCreditLogs} disabled={loading}>
+                      ⟳
+                    </button>
+                  </div>
+                </div>
+
+                <div style={styles.cardBody}>
+                  {!filteredCreditLogs.length ? (
+                    <div style={{ color: "#64748b" }}>Sin logs de créditos.</div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 12 }}>
+                      {filteredCreditLogs.map((l, idx) => (
+                        <div
+                          key={l.id || idx}
+                          style={{
+                            border: "1px solid #edf1fb",
+                            borderRadius: 16,
+                            padding: 14,
+                            background: "#fff",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                            <div style={{ fontWeight: 1000 }}>{l.userEmail || "—"}</div>
+                            <div style={{ color: "#64748b", fontSize: 12 }}>{fmtDate(l.createdAt)}</div>
+                          </div>
+
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                            <span style={styles.badge("gray")}>
+                              Admin: {l.adminEmail || "—"}
+                            </span>
+                            <span style={styles.badge(l.delta >= 0 ? "ok" : "warn")}>
+                              {l.delta >= 0 ? `+${l.delta}` : `${l.delta}`} créditos
+                            </span>
+                            <span style={styles.badge("gray")}>
+                              {l.before} → {l.after}
+                            </span>
+                          </div>
+
+                          {l.note ? (
+                            <div style={{ marginTop: 10, color: "#475569", fontSize: 13 }}>
+                              Nota: {l.note}
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </main>
       </div>
 
-      {/* Create user modal */}
+      {/* MODALS */}
       <Modal
-        open={createOpen}
+        open={openCreate}
         title="Crear usuario"
-        subtitle={isSuperAdmin ? "Puedes crear users o admins." : "Como admin, crea usuarios (role=user)."}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => setOpenCreate(false)}
+        footer={
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <button style={styles.btn} onClick={() => setOpenCreate(false)}>
+              Cancelar
+            </button>
+            <button style={{ ...styles.btn, ...styles.btnPrimary }} onClick={createUser} disabled={loading}>
+              {loading ? "Creando..." : "Crear"}
+            </button>
+          </div>
+        }
       >
         <div style={{ display: "grid", gap: 12 }}>
           <div>
             <div style={styles.label}>Email</div>
-            <input value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="correo@..." style={styles.input} />
+            <input
+              style={styles.input}
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              placeholder="correo@dominio.com"
+            />
           </div>
           <div>
             <div style={styles.label}>Password</div>
-            <input value={newUserPass} onChange={(e) => setNewUserPass(e.target.value)} placeholder="mínimo 6" type="password" style={styles.input} />
+            <input
+              style={styles.input}
+              value={newPass}
+              onChange={(e) => setNewPass(e.target.value)}
+              placeholder="mínimo 6 caracteres"
+              type="text"
+            />
           </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <div style={styles.label}>Rol</div>
-              <select
-                value={newUserRole}
-                onChange={(e) => setNewUserRole(e.target.value)}
-                style={styles.input}
-                disabled={!isSuperAdmin}
-              >
-                <option value="user">user</option>
-                <option value="admin">admin</option>
-              </select>
-              {!isSuperAdmin ? <div style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>Solo Super Admin puede crear admins.</div> : null}
-            </div>
-
-            <div style={{ display: "grid", alignContent: "end" }}>
-              <button onClick={createUser} style={styles.btn("primary")}>Crear</button>
+          <div>
+            <div style={styles.label}>Rol</div>
+            <select style={styles.input} value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+              <option value="user">user</option>
+              <option value="admin">admin</option>
+            </select>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>
+              * Si tu backend limita roles por superadmin, aquí solo es UI.
             </div>
           </div>
         </div>
       </Modal>
 
-      {/* Credits modal */}
       <Modal
-        open={creditsOpen}
-        title="Asignar créditos"
-        subtitle={creditsTarget ? `Usuario: ${creditsTarget.email}` : ""}
-        onClose={() => setCreditsOpen(false)}
+        open={openCredits}
+        title={`Créditos — ${creditsUser?.email || ""}`}
+        onClose={() => setOpenCredits(false)}
+        footer={
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <button style={styles.btn} onClick={() => setOpenCredits(false)}>
+              Cancelar
+            </button>
+            <button style={{ ...styles.btn, ...styles.btnPrimary }} onClick={grantCredits} disabled={loading}>
+              {loading ? "Aplicando..." : "Aplicar"}
+            </button>
+          </div>
+        }
       >
         <div style={{ display: "grid", gap: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <div style={styles.label}>Amount (entero)</div>
-              <input
-                value={creditsAmount}
-                onChange={(e) => setCreditsAmount(e.target.value)}
-                placeholder="10 o -10"
-                style={styles.input}
-              />
-            </div>
-            <div>
-              <div style={styles.label}>Nota (opcional)</div>
-              <input value={creditsNote} onChange={(e) => setCreditsNote(e.target.value)} placeholder="motivo..." style={styles.input} />
+          <div>
+            <div style={styles.label}>Monto (entero)</div>
+            <input
+              style={styles.input}
+              value={creditsAmount}
+              onChange={(e) => setCreditsAmount(Number(e.target.value))}
+              type="number"
+            />
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>
+              Usa positivo para sumar, negativo para restar (si tu backend lo permite).
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button onClick={() => setCreditsOpen(false)} style={styles.btn("ghost")}>Cancelar</button>
-            <button onClick={grantCredits} style={styles.btn("primary")}>Guardar</button>
+          <div>
+            <div style={styles.label}>Nota (opcional)</div>
+            <input
+              style={styles.input}
+              value={creditsNote}
+              onChange={(e) => setCreditsNote(e.target.value)}
+              placeholder="Motivo / referencia..."
+            />
           </div>
         </div>
       </Modal>
+
+      <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }
