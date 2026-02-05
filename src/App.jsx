@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 /**
@@ -358,9 +359,9 @@ export default function App() {
 
   // Data
   const [users, setUsers] = useState([]);
-  const [admins, setAdmins] = useState([]);               // ✅ dropdown
-  const [selectedAdmin, setSelectedAdmin] = useState("all"); // ✅ "all" o id
-  const [loadingAdmins, setLoadingAdmins] = useState(false); // ✅
+  const [admins, setAdmins] = useState([]); // dropdown superadmin
+  const [selectedAdmin, setSelectedAdmin] = useState("all"); // "all" o id
+  const [loadingAdmins, setLoadingAdmins] = useState(false);
   const [logs, setLogs] = useState([]);
   const [creditLogs, setCreditLogs] = useState([]);
 
@@ -382,14 +383,15 @@ export default function App() {
   // Filters (credit logs)
   const [creditEmail, setCreditEmail] = useState("");
 
-  // Create user modal (simple)
+  // Create user modal
   const [createOpen, setCreateOpen] = useState(false);
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserPass, setNewUserPass] = useState("");
   const [newUserRole, setNewUserRole] = useState("user");
+  const [newUserOwnerAdminId, setNewUserOwnerAdminId] = useState("none"); // ✅
   const [creatingUser, setCreatingUser] = useState(false);
 
-  // Credits modal (simple)
+  // Credits modal
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [creditTarget, setCreditTarget] = useState(null);
   const [creditAmount, setCreditAmount] = useState(10);
@@ -402,11 +404,11 @@ export default function App() {
   const isAdmin = me?.role === "admin" || me?.role === "superadmin";
   const isSuper = me?.role === "superadmin";
 
-  // (solo por compat con tu versión anterior)
+  // compat
   const passwordRef = useRef(null);
 
   /* ===========================
-     Credits: refrescar SOLO cuando toca (no cada segundo)
+     Credits: refrescar SOLO cuando toca
   ============================ */
   const refreshCredits = async () => {
     try {
@@ -416,7 +418,9 @@ export default function App() {
 
       setMe((prev) => {
         if (!prev) return prev;
-        const updated = { ...prev, credits: c.credits ?? prev.credits };
+        // ✅ superadmin "infinito" (guardamos número grande pero pintamos ∞)
+        const credits = prev.role === "superadmin" ? 999999999 : (c.credits ?? prev.credits);
+        const updated = { ...prev, credits };
         localStorage.setItem("me", JSON.stringify(updated));
         return updated;
       });
@@ -438,7 +442,6 @@ export default function App() {
       } catch {}
     }
 
-    // ✅ una sola vez al cargar
     refreshCredits();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -464,7 +467,6 @@ export default function App() {
           title: "Login fallido",
           message: data.message || `HTTP ${res.status}`,
         });
-        setLoadingLogin(false);
         return;
       }
 
@@ -476,7 +478,6 @@ export default function App() {
       setConsultStep("cards");
       setFiles([]);
 
-      // ✅ créditos una vez
       refreshCredits();
 
       showToast({ type: "success", title: "Sesión iniciada", message: "Bienvenido 👋" });
@@ -495,7 +496,7 @@ export default function App() {
     localStorage.removeItem("token");
     localStorage.removeItem("me");
     setMe(null);
-    setEmail("admin@docuexpress.com");
+    setEmail(""); // ✅ ya no prellenar correo
     setPassword("");
     setView("consultar");
     setConsultStep("cards");
@@ -504,7 +505,7 @@ export default function App() {
   };
 
   /* ===========================
-     Admin: cargar admins para dropdown (solo superadmin)
+     Admin: cargar admins (solo superadmin)
   ============================ */
   const refreshAdmins = async () => {
     if (!isSuper) return;
@@ -528,7 +529,6 @@ export default function App() {
     setLoadingUsers(true);
     try {
       let url = "/api/users";
-      // ✅ si eres superadmin y elegiste un admin en dropdown, filtramos
       if (isSuper && ownerAdminId && ownerAdminId !== "all") {
         url = `/api/users?ownerAdminId=${encodeURIComponent(ownerAdminId)}`;
       }
@@ -579,7 +579,6 @@ export default function App() {
     if (!me || !isAdmin) return;
 
     if (view === "users") {
-      // ✅ si es superadmin, cargamos admins y luego users
       if (isSuper) {
         refreshAdmins();
       }
@@ -591,7 +590,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, me?.id]);
 
-  // ✅ cuando cambias el dropdown (solo superadmin), recarga la lista
+  // Cuando cambias dropdown (solo superadmin), recarga
   useEffect(() => {
     if (!me || view !== "users" || !isSuper) return;
     refreshUsers(selectedAdmin);
@@ -608,7 +607,7 @@ export default function App() {
     return { curp: true, nss: true, hint: "CURP + NSS" }; // semanas
   }, [type]);
 
-  // ✅ errores en vivo
+  // errores en vivo
   const curpErr = curp && !validateCurp(curp) ? "CURP inválida" : null;
   const nssErr = requirements.nss && nss && !validateNss(nss) ? "NSS inválido (11 dígitos)" : null;
 
@@ -634,7 +633,6 @@ export default function App() {
     const cleanCurp = String(curp || "").trim().toUpperCase();
     const cleanNss = String(nss || "").trim();
 
-    // ✅ Validación A
     if (!validateCurp(cleanCurp)) {
       showToast({ type: "error", title: "Formato inválido", message: "La CURP no es válida." });
       return;
@@ -671,16 +669,12 @@ export default function App() {
         return;
       }
 
-      // ✅ guardar curp usado para nombres de descarga
       setLastCurpUsed(cleanCurp);
-
       setFiles(data.files || []);
       showToast({ type: "success", title: "Documento generado", message: "PDF listo para descargar." });
 
-      // ✅ créditos SOLO aquí
       refreshCredits();
 
-      // ✅ limpiar inputs al éxito
       setCurp("");
       setNss("");
     } catch {
@@ -727,18 +721,29 @@ export default function App() {
     setNewUserEmail("");
     setNewUserPass("");
     setNewUserRole("user");
+    setNewUserOwnerAdminId("none");
+    // ✅ si es superadmin, asegura que haya lista de admins para el dropdown
+    if (isSuper && (!admins || admins.length === 0)) {
+      refreshAdmins();
+    }
   };
 
   const createUser = async () => {
     setCreatingUser(true);
     try {
+      const body = {
+        email: newUserEmail.trim(),
+        password: newUserPass,
+        role: newUserRole,
+        ownerAdminId:
+          isSuper && newUserRole === "user" && newUserOwnerAdminId !== "none"
+            ? newUserOwnerAdminId
+            : undefined,
+      };
+
       const r = await authFetch("/api/users", {
         method: "POST",
-        body: JSON.stringify({
-          email: newUserEmail.trim(),
-          password: newUserPass,
-          role: newUserRole,
-        }),
+        body: JSON.stringify(body),
       });
 
       const data = await safeJson(r);
@@ -825,6 +830,7 @@ export default function App() {
       setCreditsOpen(false);
       refreshUsers(selectedAdmin);
       if (view === "creditlogs") refreshCreditLogs();
+      refreshCredits();
     } catch {
       showToast({ type: "error", title: "Error", message: "No se pudo asignar créditos." });
     } finally {
@@ -898,13 +904,13 @@ export default function App() {
   }, [users, logs]);
 
   /* ===========================
-     UI: login screen
+     UI: login screen (centrado, sin panel derecho)
   ============================ */
   if (!me) {
     return (
       <div style={styles.page}>
-        <div style={{ ...styles.shell, gridTemplateColumns: "420px 1fr" }}>
-          <div style={styles.sidebarLogin}>
+        <div style={styles.loginCenterWrap}>
+          <div style={styles.loginCenterCard}>
             <div style={styles.brandRow}>
               <div style={styles.brand}>
                 <span style={{ fontWeight: 900 }}>Docu</span>
@@ -913,71 +919,38 @@ export default function App() {
               <Pill tone="purple">SaaS</Pill>
             </div>
 
-            <div style={styles.loginCard}>
-              <div style={{ fontSize: 20, fontWeight: 900, marginBottom: 14 }}>Iniciar sesión</div>
-
-              <div style={{ display: "grid", gap: 12 }}>
-                <Input
-                  label="Correo"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="correo@docuexpress.com"
-                  autoComplete="username"
-                  right={<span style={{ opacity: 0.7 }}>@</span>}
-                />
-                <Input
-                  label="Contraseña"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Tu contraseña"
-                  type="password"
-                  autoComplete="current-password"
-                  right={<Icon name="key" />}
-                />
-                <Button
-                  variant="primary"
-                  onClick={onLogin}
-                  disabled={loadingLogin || !email || !password}
-                  leftIcon={loadingLogin ? <span style={styles.spinner} /> : null}
-                  style={{ width: "100%", height: 48, borderRadius: 14 }}
-                >
-                  {loadingLogin ? "Entrando…" : "Iniciar sesión"}
-                </Button>
-              </div>
-
-              <div style={{ marginTop: 14, color: "#64748b", fontSize: 13 }}>
-                Tip: correo@dominio.com+contraseña.
-              </div>
+            <div style={{ marginTop: 14, fontSize: 20, fontWeight: 900 }}>Iniciar sesión</div>
+            <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>
+              Ingresa tu correo y contraseña.
             </div>
-          </div>
 
-          <div style={styles.loginHero}>
-            <div style={styles.heroInner}>
-              <div style={{ fontWeight: 900, fontSize: 44, letterSpacing: -1 }}>
-                Panel de documentos IMSS, <span style={{ color: "#4f46e5" }}>premium</span>.
-              </div>
-              <div style={{ marginTop: 12, color: "#64748b", fontSize: 16, lineHeight: 1.6 }}>
-                Consulta, controla créditos, revisa logs y descarga PDFs con un flujo limpio para tu equipo.
-              </div>
-
-              <div style={{ marginTop: 26, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <div style={styles.heroBox}>
-                  <div style={styles.heroBoxTitle}>✅ Descargas con estado</div>
-                  <div style={styles.heroBoxText}>Botón PDF / Descargar y loading por archivo.</div>
-                </div>
-                <div style={styles.heroBox}>
-                  <div style={styles.heroBoxTitle}>🧩 Admin + Usuarios</div>
-                  <div style={styles.heroBoxText}>Listo para crecer creando tus propios usuarios.</div>
-                </div>
-                <div style={styles.heroBox}>
-                  <div style={styles.heroBoxTitle}>🔎 Filtros de logs</div>
-                  <div style={styles.heroBoxText}>Tipo, rango rápido y búsqueda por email.</div>
-                </div>
-                <div style={styles.heroBox}>
-                  <div style={styles.heroBoxTitle}>🧼 Servicio 24/7</div>
-                  <div style={styles.heroBoxText}>Dispon de tus documentos las 24 hrs del día.</div>
-                </div>
-              </div>
+            <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
+              <Input
+                label="Correo"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="correo@tuempresa.com"
+                autoComplete="username"
+                right={<span style={{ opacity: 0.7 }}>@</span>}
+              />
+              <Input
+                label="Contraseña"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Tu contraseña"
+                type="password"
+                autoComplete="current-password"
+                right={<Icon name="key" />}
+              />
+              <Button
+                variant="primary"
+                onClick={onLogin}
+                disabled={loadingLogin || !email || !password}
+                leftIcon={loadingLogin ? <span style={styles.spinner} /> : null}
+                style={{ width: "100%", height: 48, borderRadius: 14 }}
+              >
+                {loadingLogin ? "Entrando…" : "Iniciar sesión"}
+              </Button>
             </div>
           </div>
         </div>
@@ -1194,7 +1167,6 @@ export default function App() {
                       error={curp ? curpErr : null}
                     />
 
-                    {/* ✅ NSS SOLO aparece si el trámite lo requiere */}
                     {requirements.nss ? (
                       <Input
                         label="NSS (obligatorio)"
@@ -1232,7 +1204,6 @@ export default function App() {
                     Aquí aparecerán los PDFs para descargar cuando generes un documento.
                   </div>
 
-                  {/* Files */}
                   {files?.length ? (
                     <div style={{ display: "grid", gap: 10, marginTop: 4 }}>
                       {files.map((f) => {
@@ -1320,7 +1291,6 @@ export default function App() {
               subtitle={isSuper ? "Como superadmin puedes ver todo y filtrar por admin." : "Como admin solo ves tus usuarios."}
               right={
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  {/* ✅ Dropdown solo para superadmin */}
                   {isSuper ? (
                     <div style={{ width: 260 }}>
                       <Select
@@ -1362,8 +1332,15 @@ export default function App() {
                         <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <Pill tone={u.role === "admin" ? "purple" : "blue"}>{u.role}</Pill>
                           <Pill tone={u.disabled ? "red" : "green"}>{u.disabled ? "Deshabilitado" : "Activo"}</Pill>
-                          <Pill>Créditos: {u.credits ?? 0}</Pill>
-                          {isSuper && u.role === "user" && u.ownerAdminId ? <Pill tone="purple">ownerAdminId: {clampStr(u.ownerAdminId, 18)}</Pill> : null}
+                          <Pill>
+                            Créditos:{" "}
+                            {u.role === "superadmin"
+                              ? "∞"
+                              : (u.credits ?? 0)}
+                          </Pill>
+                          {isSuper && u.role === "user" && u.ownerAdminId ? (
+                            <Pill tone="purple">owner: {clampStr(u.ownerAdminId, 18)}</Pill>
+                          ) : null}
                         </div>
                       </div>
 
@@ -1374,10 +1351,7 @@ export default function App() {
                         <Button variant="soft" onClick={() => resetPassword(u.id)} leftIcon={<Icon name="key" />}>
                           Reset
                         </Button>
-                        <Button
-                          variant={u.disabled ? "soft" : "danger"}
-                          onClick={() => toggleDisable(u)}
-                        >
+                        <Button variant={u.disabled ? "soft" : "danger"} onClick={() => toggleDisable(u)}>
                           {u.disabled ? "Habilitar" : "Deshabilitar"}
                         </Button>
                       </div>
@@ -1580,6 +1554,20 @@ export default function App() {
                       { value: "admin", label: "admin" },
                     ]}
                   />
+
+                  {/* ✅ SOLO superadmin + rol=user: asignar ownerAdminId */}
+                  {isSuper && newUserRole === "user" ? (
+                    <Select
+                      label="Asignar a admin (opcional)"
+                      value={newUserOwnerAdminId}
+                      onChange={(e) => setNewUserOwnerAdminId(e.target.value)}
+                      disabled={loadingAdmins}
+                      options={[
+                        { value: "none", label: loadingAdmins ? "Cargando admins…" : "Sin asignar" },
+                        ...(admins || []).map((a) => ({ value: a.id, label: a.email })),
+                      ]}
+                    />
+                  ) : null}
                 </div>
 
                 <div style={{ marginTop: 14, display: "flex", gap: 10, justifyContent: "flex-end" }}>
@@ -1647,7 +1635,7 @@ export default function App() {
 }
 
 /* ===========================
-   Styles (premium, clean)
+   Styles
 =========================== */
 const styles = {
   page: {
@@ -1664,38 +1652,24 @@ const styles = {
     gap: 16,
   },
 
-  /* Login */
-  sidebarLogin: {
-    background: "rgba(255,255,255,.70)",
+  /* ✅ Login centrado */
+  loginCenterWrap: {
+    minHeight: "100vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 18,
+  },
+  loginCenterCard: {
+    width: 460,
+    maxWidth: "100%",
+    background: "rgba(255,255,255,.80)",
     border: "1px solid rgba(2,6,23,.06)",
     borderRadius: 22,
     padding: 18,
     boxShadow: "0 20px 40px rgba(2,6,23,.06)",
     backdropFilter: "blur(8px)",
   },
-  loginCard: {
-    marginTop: 14,
-    background: "white",
-    borderRadius: 18,
-    padding: 18,
-    border: "1px solid rgba(2,6,23,.06)",
-  },
-  loginHero: {
-    background: "white",
-    borderRadius: 22,
-    border: "1px solid rgba(2,6,23,.06)",
-    boxShadow: "0 20px 40px rgba(2,6,23,.06)",
-    overflow: "hidden",
-  },
-  heroInner: { padding: 28 },
-  heroBox: {
-    border: "1px solid rgba(2,6,23,.06)",
-    borderRadius: 16,
-    padding: 14,
-    background: "rgba(248,250,252,.8)",
-  },
-  heroBoxTitle: { fontWeight: 900 },
-  heroBoxText: { marginTop: 4, color: "#64748b", fontSize: 13 },
 
   /* Sidebar */
   sidebar: {
@@ -2021,3 +1995,4 @@ if (typeof document !== "undefined" && !document.getElementById("dx-spin-style")
   style.innerHTML = `@keyframes spin{to{transform:rotate(360deg)}}`;
   document.head.appendChild(style);
 }
+
