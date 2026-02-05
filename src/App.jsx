@@ -293,11 +293,11 @@ function Input({
   );
 }
 
-function Select({ label, value, onChange, options }) {
+function Select({ label, value, onChange, options, disabled }) {
   return (
     <div style={{ width: "100%" }}>
       {label ? <div style={styles.label}>{label}</div> : null}
-      <select value={value} onChange={onChange} style={styles.select}>
+      <select value={value} onChange={onChange} style={styles.select} disabled={disabled}>
         {options.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
@@ -358,6 +358,9 @@ export default function App() {
 
   // Data
   const [users, setUsers] = useState([]);
+  const [admins, setAdmins] = useState([]);               // ✅ dropdown
+  const [selectedAdmin, setSelectedAdmin] = useState("all"); // ✅ "all" o id
+  const [loadingAdmins, setLoadingAdmins] = useState(false); // ✅
   const [logs, setLogs] = useState([]);
   const [creditLogs, setCreditLogs] = useState([]);
 
@@ -501,16 +504,39 @@ export default function App() {
   };
 
   /* ===========================
+     Admin: cargar admins para dropdown (solo superadmin)
+  ============================ */
+  const refreshAdmins = async () => {
+    if (!isSuper) return;
+    setLoadingAdmins(true);
+    try {
+      const r = await authFetch("/api/users/admins");
+      const data = await safeJson(r);
+      if (!r.ok) throw new Error(data.message || "No se pudieron cargar admins");
+      setAdmins(data.admins || []);
+    } catch (e) {
+      showToast({ type: "error", title: "Error", message: String(e.message || e) });
+    } finally {
+      setLoadingAdmins(false);
+    }
+  };
+
+  /* ===========================
      Load data for admin areas
   ============================ */
-  const refreshUsers = async () => {
+  const refreshUsers = async (ownerAdminId = null) => {
     setLoadingUsers(true);
     try {
-      const r = await authFetch("/api/users");
+      let url = "/api/users";
+      // ✅ si eres superadmin y elegiste un admin en dropdown, filtramos
+      if (isSuper && ownerAdminId && ownerAdminId !== "all") {
+        url = `/api/users?ownerAdminId=${encodeURIComponent(ownerAdminId)}`;
+      }
+
+      const r = await authFetch(url);
       const data = await safeJson(r);
       if (!r.ok) throw new Error(data.message || "No se pudo cargar usuarios");
 
-      // ✅ compat: si backend responde arreglo directo o {users:[]}
       const list = Array.isArray(data) ? data : (data.users || []);
       setUsers(list);
     } catch (e) {
@@ -551,11 +577,26 @@ export default function App() {
   // Cuando entra a vistas admin, cargamos
   useEffect(() => {
     if (!me || !isAdmin) return;
-    if (view === "users") refreshUsers();
+
+    if (view === "users") {
+      // ✅ si es superadmin, cargamos admins y luego users
+      if (isSuper) {
+        refreshAdmins();
+      }
+      refreshUsers(selectedAdmin);
+    }
+
     if (view === "logs") refreshLogs();
     if (view === "creditlogs") refreshCreditLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, me?.id]);
+
+  // ✅ cuando cambias el dropdown (solo superadmin), recarga la lista
+  useEffect(() => {
+    if (!me || view !== "users" || !isSuper) return;
+    refreshUsers(selectedAdmin);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAdmin]);
 
   /* ===========================
      Consultar (generate + download)
@@ -708,7 +749,8 @@ export default function App() {
 
       showToast({ type: "success", title: "Usuario creado", message: data?.user?.email || "Listo." });
       setCreateOpen(false);
-      refreshUsers();
+      refreshUsers(selectedAdmin);
+      if (isSuper) refreshAdmins();
     } catch {
       showToast({ type: "error", title: "Error", message: "No se pudo crear usuario." });
     } finally {
@@ -730,7 +772,7 @@ export default function App() {
         title: "Password reseteada",
         message: `Nueva contraseña: ${data.newPassword}`,
       });
-      refreshUsers();
+      refreshUsers(selectedAdmin);
     } catch {
       showToast({ type: "error", title: "Error", message: "No se pudo resetear password." });
     }
@@ -747,7 +789,7 @@ export default function App() {
         showToast({ type: "error", title: "Error", message: data.message || "No se pudo actualizar." });
         return;
       }
-      refreshUsers();
+      refreshUsers(selectedAdmin);
     } catch {
       showToast({ type: "error", title: "Error", message: "No se pudo actualizar." });
     }
@@ -781,7 +823,7 @@ export default function App() {
 
       showToast({ type: "success", title: "Créditos actualizados", message: creditTarget.email });
       setCreditsOpen(false);
-      refreshUsers();
+      refreshUsers(selectedAdmin);
       if (view === "creditlogs") refreshCreditLogs();
     } catch {
       showToast({ type: "error", title: "Error", message: "No se pudo asignar créditos." });
@@ -1023,14 +1065,14 @@ export default function App() {
               <Button
                 variant="ghost"
                 onClick={() => {
-                  if (view === "users") refreshUsers();
+                  if (view === "users") refreshUsers(selectedAdmin);
                   if (view === "logs") refreshLogs();
                   if (view === "creditlogs") refreshCreditLogs();
                   if (view === "dashboard") {
-                    refreshUsers();
+                    refreshUsers(selectedAdmin);
                     refreshLogs();
                   }
-                  // créditos a mano si quieres
+                  if (view === "users" && isSuper) refreshAdmins();
                   refreshCredits();
                 }}
                 leftIcon={<Icon name="refresh" />}
@@ -1246,7 +1288,7 @@ export default function App() {
                   <Button
                     variant="soft"
                     onClick={() => {
-                      refreshUsers();
+                      refreshUsers(selectedAdmin);
                       refreshLogs();
                       refreshCredits();
                     }}
@@ -1275,16 +1317,32 @@ export default function App() {
           {view === "users" && isAdmin && (
             <Card
               title="Usuarios"
-              subtitle={isSuper ? "Como superadmin puedes ver todo." : "Como admin solo ves tus usuarios (si backend está scoping)."}
+              subtitle={isSuper ? "Como superadmin puedes ver todo y filtrar por admin." : "Como admin solo ves tus usuarios."}
               right={
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  {/* ✅ Dropdown solo para superadmin */}
+                  {isSuper ? (
+                    <div style={{ width: 260 }}>
+                      <Select
+                        label="Admin"
+                        value={selectedAdmin}
+                        onChange={(e) => setSelectedAdmin(e.target.value)}
+                        disabled={loadingAdmins}
+                        options={[
+                          { value: "all", label: loadingAdmins ? "Cargando admins…" : "Todos los admins" },
+                          ...(admins || []).map((a) => ({ value: a.id, label: a.email })),
+                        ]}
+                      />
+                    </div>
+                  ) : null}
+
                   <Input
                     value={userSearch}
                     onChange={(e) => setUserSearch(e.target.value)}
                     placeholder="Buscar email…"
                     right={<Icon name="search" />}
                   />
-                  <Button variant="ghost" onClick={refreshUsers} leftIcon={<Icon name="refresh" />} disabled={loadingUsers}>
+                  <Button variant="ghost" onClick={() => refreshUsers(selectedAdmin)} leftIcon={<Icon name="refresh" />} disabled={loadingUsers}>
                     {loadingUsers ? "…" : ""}
                   </Button>
                   <Button variant="primary" onClick={openCreateUser} leftIcon={<Icon name="plus" />}>
@@ -1305,14 +1363,8 @@ export default function App() {
                           <Pill tone={u.role === "admin" ? "purple" : "blue"}>{u.role}</Pill>
                           <Pill tone={u.disabled ? "red" : "green"}>{u.disabled ? "Deshabilitado" : "Activo"}</Pill>
                           <Pill>Créditos: {u.credits ?? 0}</Pill>
+                          {isSuper && u.role === "user" && u.ownerAdminId ? <Pill tone="purple">ownerAdminId: {clampStr(u.ownerAdminId, 18)}</Pill> : null}
                         </div>
-
-                        {/* Si backend agrega owner/admin: lo mostramos */}
-                        {u.createdByEmail ? (
-                          <div style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>
-                            Admin dueño: <b>{u.createdByEmail}</b>
-                          </div>
-                        ) : null}
                       </div>
 
                       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
