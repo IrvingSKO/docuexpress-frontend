@@ -1019,7 +1019,7 @@ export default function App() {
 
             <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
               <Pill tone={isSuper ? "purple" : "blue"}>{isSuper ? "Superadmin" : me.role}</Pill>
-              <Pill tone="blue">{Number(me.credits ?? 0)} créditos</Pill>
+              <Pill tone="blue">{isSuper ? "∞ créditos" : `${Number(me.credits ?? 0)} créditos`}</Pill>
             </div>
 
             <div style={{ marginTop: 12 }}>
