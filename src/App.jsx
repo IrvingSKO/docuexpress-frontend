@@ -946,7 +946,7 @@ export default function App() {
               </div>
 
               <div style={{ marginTop: 14, color: "#64748b", fontSize: 13 }}>
-                Tip: usa tu admin/superadmin que ya sembraste en el backend.
+                Tip: correo@dominio.com+contraseña.
               </div>
             </div>
           </div>
@@ -966,16 +966,16 @@ export default function App() {
                   <div style={styles.heroBoxText}>Botón PDF / Descargar y loading por archivo.</div>
                 </div>
                 <div style={styles.heroBox}>
-                  <div style={styles.heroBoxTitle}>🧩 Admin / Superadmin</div>
-                  <div style={styles.heroBoxText}>Listo para crecer a multi-admin por scopes.</div>
+                  <div style={styles.heroBoxTitle}>🧩 Admin + Usuarios</div>
+                  <div style={styles.heroBoxText}>Listo para crecer creando tus propios usuarios.</div>
                 </div>
                 <div style={styles.heroBox}>
                   <div style={styles.heroBoxTitle}>🔎 Filtros de logs</div>
                   <div style={styles.heroBoxText}>Tipo, rango rápido y búsqueda por email.</div>
                 </div>
                 <div style={styles.heroBox}>
-                  <div style={styles.heroBoxTitle}>🧼 UI limpia</div>
-                  <div style={styles.heroBoxText}>Sin mostrar URL del backend ni detalles sensibles.</div>
+                  <div style={styles.heroBoxTitle}>🧼 Servicio 24/7</div>
+                  <div style={styles.heroBoxText}>Dispon de tus documentos las 24 hrs del día.</div>
                 </div>
               </div>
             </div>
