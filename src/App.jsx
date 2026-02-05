@@ -783,22 +783,27 @@ export default function App() {
     }
   };
 
-  const toggleDisable = async (u) => {
-    try {
-      const r = await authFetch(`/api/users/${u.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ disabled: !u.disabled }),
-      });
-      const data = await safeJson(r);
-      if (!r.ok) {
-        showToast({ type: "error", title: "Error", message: data.message || "No se pudo actualizar." });
-        return;
-      }
-      refreshUsers(selectedAdmin);
-    } catch {
-      showToast({ type: "error", title: "Error", message: "No se pudo actualizar." });
+  const deleteUser = async (u) => {
+  const ok = window.confirm(`¿Seguro que quieres BORRAR a ${u.email}? Esta acción no se puede deshacer.`);
+  if (!ok) return;
+
+  try {
+    const r = await authFetch(`/api/users/${u.id}`, { method: "DELETE" });
+    const data = await safeJson(r);
+    if (!r.ok) {
+      showToast({ type: "error", title: "Error", message: data.message || "No se pudo borrar." });
+      return;
     }
-  };
+
+    showToast({ type: "success", title: "Usuario borrado", message: u.email });
+    refreshUsers(selectedAdmin);
+    if (view === "creditlogs") refreshCreditLogs();
+    if (view === "logs") refreshLogs();
+  } catch {
+    showToast({ type: "error", title: "Error", message: "No se pudo borrar el usuario." });
+  }
+};
+
 
   const openCredits = (u) => {
     setCreditTarget(u);
@@ -1351,9 +1356,10 @@ export default function App() {
                         <Button variant="soft" onClick={() => resetPassword(u.id)} leftIcon={<Icon name="key" />}>
                           Reset
                         </Button>
-                        <Button variant={u.disabled ? "soft" : "danger"} onClick={() => toggleDisable(u)}>
-                          {u.disabled ? "Habilitar" : "Deshabilitar"}
+                        <Button variant="danger" onClick={() => deleteUser(u)}>
+                          Borrar
                         </Button>
+
                       </div>
                     </div>
                   ))}
