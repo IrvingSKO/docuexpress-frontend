@@ -343,7 +343,7 @@ export default function App() {
   const showToast = (t) => setToast(t);
 
   // Auth state
-  const [email, setEmail] = useState("admin@docuexpress.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [me, setMe] = useState(null);
 
