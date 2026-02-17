@@ -44,6 +44,9 @@ function fileLabelFromType(type) {
     nss: "NSS",
     vigencia: "Vigencia",
     noderecho: "NoDerecho",
+    rpu: "RPU",
+    nss_alt: "NSS_Alterno",
+    vigencia_alt: "Vigencia_Alterno",
   };
   return map[type] || "Documento";
 }
@@ -61,6 +64,7 @@ function isWAFHtmlMessage(msg) {
 const CURP_REGEX =
   /^[A-Z][AEIOUX][A-Z]{2}\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[HM](AS|BC|BS|CC|CL|CM|CS|CH|DF|DG|GT|GR|HG|JC|MC|MN|MS|NT|NL|OC|PL|QT|QR|SP|SL|SR|TC|TS|TL|VZ|YN|ZS|NE)[B-DF-HJ-NP-TV-Z]{3}[A-Z\d]\d$/;
 const NSS_REGEX = /^\d{11}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateCurp(curp) {
   const c = String(curp || "").trim().toUpperCase();
@@ -69,6 +73,10 @@ function validateCurp(curp) {
 function validateNss(nss) {
   const n = String(nss || "").trim();
   return NSS_REGEX.test(n);
+}
+function validateEmail(email) {
+  const e = String(email || "").trim().toLowerCase();
+  return EMAIL_REGEX.test(e);
 }
 
 /* ===========================
@@ -354,6 +362,7 @@ export default function App() {
   const [type, setType] = useState("semanas");
   const [curp, setCurp] = useState("");
   const [nss, setNss] = useState("");
+  const [contacto, setContacto] = useState(""); // ✅ correo temporal (alternos)
   const [files, setFiles] = useState([]);
   const [lastCurpUsed, setLastCurpUsed] = useState("");
 
@@ -601,15 +610,27 @@ export default function App() {
      Consultar (generate + download)
   ============================ */
   const requirements = useMemo(() => {
-    if (type === "nss") return { curp: true, nss: false, hint: "Solo CURP · puede devolver 2 PDFs" };
-    if (type === "noderecho") return { curp: true, nss: false, hint: "Solo CURP (según proveedor)" };
-    if (type === "vigencia") return { curp: true, nss: true, hint: "CURP + NSS" };
-    return { curp: true, nss: true, hint: "CURP + NSS" }; // semanas
+    if (type === "nss") return { curp: true, nss: false, contacto: false, hint: "Solo CURP · puede devolver 2 PDFs" };
+    if (type === "noderecho") return { curp: true, nss: false, contacto: false, hint: "Solo CURP (según proveedor)" };
+    if (type === "vigencia") return { curp: true, nss: true, contacto: false, hint: "CURP + NSS" };
+
+    // ✅ nuevo: RPU (solo CURP)
+    if (type === "rpu") return { curp: true, nss: false, contacto: false, hint: "Solo CURP" };
+
+    // ✅ alternos por correo (no PDF)
+    if (type === "nss_alt") return { curp: true, nss: false, contacto: true, hint: "CURP + correo temporal (se envía por email)" };
+    if (type === "vigencia_alt") return { curp: true, nss: true, contacto: true, hint: "CURP + NSS + correo temporal (se envía por email)" };
+
+    return { curp: true, nss: true, contacto: false, hint: "CURP + NSS" }; // semanas
   }, [type]);
 
   // errores en vivo
   const curpErr = curp && !validateCurp(curp) ? "CURP inválida" : null;
   const nssErr = requirements.nss && nss && !validateNss(nss) ? "NSS inválido (11 dígitos)" : null;
+  const emailErr =
+    requirements.contacto && contacto && !validateEmail(contacto)
+      ? "Correo inválido"
+      : null;
 
   const onPaste = async () => {
     try {
@@ -632,6 +653,7 @@ export default function App() {
 
     const cleanCurp = String(curp || "").trim().toUpperCase();
     const cleanNss = String(nss || "").trim();
+    const cleanContacto = String(contacto || "").trim().toLowerCase();
 
     if (!validateCurp(cleanCurp)) {
       showToast({ type: "error", title: "Formato inválido", message: "La CURP no es válida." });
@@ -643,13 +665,21 @@ export default function App() {
       return;
     }
 
+    if (requirements.contacto && !validateEmail(cleanContacto)) {
+      showToast({ type: "error", title: "Formato inválido", message: "Favor de insertar un correo temporal válido." });
+      return;
+    }
+
     setLoadingGenerate(true);
     setFiles([]);
 
     try {
+      const body = { type, curp: cleanCurp, nss: cleanNss };
+      if (requirements.contacto) body.contacto = cleanContacto;
+
       const res = await authFetch("/api/imss", {
         method: "POST",
-        body: JSON.stringify({ type, curp: cleanCurp, nss: cleanNss }),
+        body: JSON.stringify(body),
       });
 
       const data = await safeJson(res);
@@ -669,6 +699,24 @@ export default function App() {
         return;
       }
 
+      // ✅ alternos: el backend regresa mode:"email" y files:[]
+      if (data?.mode === "email") {
+        setLastCurpUsed(cleanCurp);
+        setFiles([]); // no hay pdf
+        showToast({
+          type: "success",
+          title: "Enviado ✅",
+          message: `IMSS envió el resultado a: ${data.contacto || cleanContacto || "tu correo"}`,
+        });
+
+        refreshCredits();
+
+        setCurp("");
+        setNss("");
+        setContacto("");
+        return;
+      }
+
       setLastCurpUsed(cleanCurp);
       setFiles(data.files || []);
       showToast({ type: "success", title: "Documento generado", message: "PDF listo para descargar." });
@@ -677,6 +725,7 @@ export default function App() {
 
       setCurp("");
       setNss("");
+      setContacto("");
     } catch {
       showToast({ type: "error", title: "Error de red", message: "No se pudo conectar al backend." });
     } finally {
@@ -784,26 +833,25 @@ export default function App() {
   };
 
   const deleteUser = async (u) => {
-  const ok = window.confirm(`¿Seguro que quieres BORRAR a ${u.email}? Esta acción no se puede deshacer.`);
-  if (!ok) return;
+    const ok = window.confirm(`¿Seguro que quieres BORRAR a ${u.email}? Esta acción no se puede deshacer.`);
+    if (!ok) return;
 
-  try {
-    const r = await authFetch(`/api/users/${u.id}`, { method: "DELETE" });
-    const data = await safeJson(r);
-    if (!r.ok) {
-      showToast({ type: "error", title: "Error", message: data.message || "No se pudo borrar." });
-      return;
+    try {
+      const r = await authFetch(`/api/users/${u.id}`, { method: "DELETE" });
+      const data = await safeJson(r);
+      if (!r.ok) {
+        showToast({ type: "error", title: "Error", message: data.message || "No se pudo borrar." });
+        return;
+      }
+
+      showToast({ type: "success", title: "Usuario borrado", message: u.email });
+      refreshUsers(selectedAdmin);
+      if (view === "creditlogs") refreshCreditLogs();
+      if (view === "logs") refreshLogs();
+    } catch {
+      showToast({ type: "error", title: "Error", message: "No se pudo borrar el usuario." });
     }
-
-    showToast({ type: "success", title: "Usuario borrado", message: u.email });
-    refreshUsers(selectedAdmin);
-    if (view === "creditlogs") refreshCreditLogs();
-    if (view === "logs") refreshLogs();
-  } catch {
-    showToast({ type: "error", title: "Error", message: "No se pudo borrar el usuario." });
-  }
-};
-
+  };
 
   const openCredits = (u) => {
     setCreditTarget(u);
@@ -978,6 +1026,23 @@ export default function App() {
 
   const canSee = (m) => (!m.adminOnly ? true : isAdmin);
 
+  const tramiteLabel =
+    type === "semanas"
+      ? "Semanas cotizadas"
+      : type === "nss"
+      ? "Asignación / Localización NSS"
+      : type === "vigencia"
+      ? "Vigencia de derechos"
+      : type === "noderecho"
+      ? "No derechohabiencia"
+      : type === "rpu"
+      ? "Reporte RPU IMSS"
+      : type === "vigencia_alt"
+      ? "Vigencia (alterno por correo)"
+      : type === "nss_alt"
+      ? "NSS (alterno por correo)"
+      : "Trámite";
+
   return (
     <div style={styles.page}>
       <div style={styles.shell}>
@@ -1128,6 +1193,27 @@ export default function App() {
                     <div style={styles.optionSub}>Constancia de no derecho al servicio médico.</div>
                     <div style={{ marginTop: 10 }}><Pill>Solo CURP</Pill></div>
                   </div>
+
+                  {/* ✅ NUEVO: RPU */}
+                  <div style={styles.optionCard} onClick={() => { setType("rpu"); setConsultStep("form"); }}>
+                    <div style={styles.optionTitle}>Reporte RPU IMSS</div>
+                    <div style={styles.optionSub}>Genera el reporte RPU (PDF).</div>
+                    <div style={{ marginTop: 10 }}><Pill>Solo CURP</Pill></div>
+                  </div>
+
+                  {/* ✅ NUEVO: Vigencia alterno */}
+                  <div style={styles.optionCard} onClick={() => { setType("vigencia_alt"); setConsultStep("form"); }}>
+                    <div style={styles.optionTitle}>Vigencia (alterno por correo)</div>
+                    <div style={styles.optionSub}>IMSS envía la vigencia al correo temporal.</div>
+                    <div style={{ marginTop: 10 }}><Pill>CURP + NSS + correo</Pill></div>
+                  </div>
+
+                  {/* ✅ NUEVO: NSS alterno */}
+                  <div style={styles.optionCard} onClick={() => { setType("nss_alt"); setConsultStep("form"); }}>
+                    <div style={styles.optionTitle}>NSS (alterno por correo)</div>
+                    <div style={styles.optionSub}>IMSS envía el NSS al correo temporal.</div>
+                    <div style={{ marginTop: 10 }}><Pill>CURP + correo</Pill></div>
+                  </div>
                 </div>
               ) : (
                 <div style={{ display: "grid", gap: 14 }}>
@@ -1135,13 +1221,7 @@ export default function App() {
                     <div style={{ color: "#64748b", fontWeight: 700 }}>
                       Trámite:{" "}
                       <span style={{ color: "#0f172a" }}>
-                        {type === "semanas"
-                          ? "Semanas cotizadas"
-                          : type === "nss"
-                          ? "Asignación / Localización NSS"
-                          : type === "vigencia"
-                          ? "Vigencia de derechos"
-                          : "No derechohabiencia"}
+                        {tramiteLabel}
                       </span>
                       <span style={{ marginLeft: 10 }}>
                         <Pill tone="blue">{requirements.hint}</Pill>
@@ -1156,6 +1236,7 @@ export default function App() {
                         setFiles([]);
                         setCurp("");
                         setNss("");
+                        setContacto("");
                       }}
                     >
                       ← Atrás
@@ -1184,6 +1265,24 @@ export default function App() {
                     ) : null}
                   </div>
 
+                  {/* ✅ Correo temporal solo cuando aplica */}
+                  {requirements.contacto ? (
+                    <div style={{ marginTop: 2 }}>
+                      <div style={{ marginBottom: 8, color: "#64748b", fontSize: 13, fontWeight: 800 }}>
+                        Favor de insertar un correo temporal
+                      </div>
+
+                      <Input
+                        label="Correo temporal (contacto)"
+                        value={contacto}
+                        onChange={(e) => setContacto(e.target.value)}
+                        placeholder="ej: usuario123@getgo.lat"
+                        disabled={loadingGenerate}
+                        error={contacto ? emailErr : null}
+                      />
+                    </div>
+                  ) : null}
+
                   <div style={styles.formRow}>
                     <Button
                       variant="soft"
@@ -1206,7 +1305,9 @@ export default function App() {
                   </div>
 
                   <div style={{ color: "#64748b", fontSize: 13 }}>
-                    Aquí aparecerán los PDFs para descargar cuando generes un documento.
+                    {requirements.contacto
+                      ? "En los trámites alternos, IMSS enviará el resultado al correo temporal (no hay PDF aquí)."
+                      : "Aquí aparecerán los PDFs para descargar cuando generes un documento."}
                   </div>
 
                   {files?.length ? (
@@ -1403,6 +1504,9 @@ export default function App() {
                     { value: "nss", label: "nss" },
                     { value: "vigencia", label: "vigencia" },
                     { value: "noderecho", label: "noderecho" },
+                    { value: "rpu", label: "rpu" },
+                    { value: "nss_alt", label: "nss_alt" },
+                    { value: "vigencia_alt", label: "vigencia_alt" },
                   ]}
                 />
                 <Select
@@ -1441,7 +1545,12 @@ export default function App() {
                           <Pill>{l.type || "—"}</Pill>
                           {l.curp ? <Pill tone="blue">{l.curp}</Pill> : null}
                           {l.nss ? <Pill>{l.nss}</Pill> : null}
+
+                          {/* ✅ alternos: mostramos contacto si viene */}
+                          {l.contacto ? <Pill tone="purple">{l.contacto}</Pill> : null}
+
                           {l.filesCount ? <Pill tone="green">{l.filesCount} PDF(s)</Pill> : null}
+                          {l.mode === "email" ? <Pill tone="green">Enviado por correo</Pill> : null}
                         </div>
 
                         {Array.isArray(l.files) && l.files.length ? (
@@ -2001,4 +2110,3 @@ if (typeof document !== "undefined" && !document.getElementById("dx-spin-style")
   style.innerHTML = `@keyframes spin{to{transform:rotate(360deg)}}`;
   document.head.appendChild(style);
 }
-
